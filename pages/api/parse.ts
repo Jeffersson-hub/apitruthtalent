@@ -15,7 +15,7 @@ export default async function handler(
     const { data: files, error: listError } = await supabase
       .storage
       .from('truthtalent')
-      .list();
+      .list('cvs', { limit: 100 });
 
     if (listError) {
       console.error('❌ Erreur listage bucket:', listError);
@@ -33,9 +33,10 @@ export default async function handler(
         const { data, error: downloadError } = await supabase
           .storage
           .from('truthtalent')
-          .download(file.name);
+          .download(`cvs/${file.name}`);
 
         if (downloadError) throw new Error(downloadError.message);
+        
         if (!data) throw new Error('Fichier vide ou non accessible');
 
         const buffer = Buffer.from(await data.arrayBuffer());
@@ -51,9 +52,12 @@ export default async function handler(
           .insert([extracted])
           .select();
 
-        if (dbError) throw new Error(dbError.message);
-
-        console.log('✅ Insert OK :', dbData);
+        if (dbError) {
+          console.error('❌ Erreur DB', dbError.message);
+        } else {
+          console.log('✅ Insert OK :', dbData);
+        }
+        
 
         results.push({ path: file.name, extracted });
       } catch (error) {
