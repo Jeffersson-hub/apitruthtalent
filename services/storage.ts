@@ -53,15 +53,17 @@ router.post("/parse", async (_req: Request, res: Response) => {
 
       // 4️⃣ Construire les données
       const candidat: Candidat = {
-        nom: "Inconnu",
-        prenom: "Inconnu",
+        nom: null,
+        prenom: null,
         email: null,
         telephone: null,
         adresse: null,
         competences: [],
         experiences: [],
         formations: [],
-        langues: []
+        langues: [],
+        profil: null,
+        entreprise: null
       };
 
       // 5️⃣ Insertion en base
