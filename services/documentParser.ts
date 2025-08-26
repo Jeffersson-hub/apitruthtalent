@@ -22,6 +22,12 @@ function extractProfil(text: string): string | null {
   return match ? match[0] : null;
 }
 
+function extractPoste(text: string): string | null {
+  const posteRegex = /\b(développeur|developer|engineer|ingénieur|designer|manager|consultant|analyst|data scientist|chef de projet|full stack|backend|frontend)\b/i;
+  const match = text.match(posteRegex);
+  return match ? match[0] : null;
+}
+
 function extractEntreprise(text: string, experiences: Experience[]): string | null {
   // 1️⃣ Essayer de trouver après "chez" ou "à"
   const entrepriseRegex = /\b(?:chez|à|pour)\s+([A-Z][A-Za-z0-9&\-\s]+)/;
@@ -108,6 +114,7 @@ export async function parseCandidateFromBuffer(filename: string, buffer: Buffer,
   const competences = extractCompetences(text);
   const experiences = extractExperiences(text);
   const profil = extractProfil(text);
+  const poste = extractPoste(text);
   const entreprise = extractEntreprise(text, experiences);
   
 
@@ -117,6 +124,7 @@ export async function parseCandidateFromBuffer(filename: string, buffer: Buffer,
     profil,
     email,
     entreprise,
+    poste,
     telephone: phone,
     adresse: null,
     competences,

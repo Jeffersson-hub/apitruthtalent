@@ -22,6 +22,7 @@ export interface Candidat {
   profil: string | null;
   email: string | null;
   entreprise: string | null;
+  poste: string | null;
   telephone: string | null;
   adresse: string | null;
   competences: string[];
