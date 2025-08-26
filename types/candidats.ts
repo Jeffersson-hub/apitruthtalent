@@ -19,9 +19,9 @@ export interface Experience {
 export interface Candidat {
   nom: string | null;
   prenom: string | null;
-  poste: string | null;
+  profil: string | null;
   email: string | null;
-   entreprise: string | null;
+  entreprise: string | null;
   telephone: string | null;
   adresse: string | null;
   competences: string[];

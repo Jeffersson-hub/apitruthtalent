@@ -16,6 +16,29 @@ function splitName(fulltext: string): { nom: string | null; prenom: string | nul
   return { prenom: m[1] || null, nom: m[2] || null };
 }
 
+function extractProfil(text: string): string | null {
+  const profilRegex = /\b(développeur|developer|engineer|ingénieur|designer|manager|consultant|analyst|data scientist|chef de projet|full stack|backend|frontend)\b/i;
+  const match = text.match(profilRegex);
+  return match ? match[0] : null;
+}
+
+function extractEntreprise(text: string, experiences: Experience[]): string | null {
+  // 1️⃣ Essayer de trouver après "chez" ou "à"
+  const entrepriseRegex = /\b(?:chez|à|pour)\s+([A-Z][A-Za-z0-9&\-\s]+)/;
+  const match = text.match(entrepriseRegex);
+  if (match) {
+    return match[1].trim();
+  }
+
+  // 2️⃣ Sinon, prendre la première entreprise détectée dans experiences
+  if (experiences.length > 0 && experiences[0].entreprise) {
+    return experiences[0].entreprise;
+  }
+
+  return null;
+}
+
+
 function extractCompetences(text: string): string[] {
   // Exemple de logique d'extraction de compétences
   const skillKeywords = [
@@ -69,6 +92,7 @@ export async function extractTextFromBuffer(filename: string, buffer: Buffer): P
   if (ext === "pdf") return pdfToText(buffer);
   // fallback: essayer en texte brut
   return buffer.toString("utf8");
+
 }
 
 export async function parseCandidateFromBuffer(filename: string, buffer: Buffer, sourcePath?: string | null): Promise<Candidat> {
@@ -78,14 +102,21 @@ export async function parseCandidateFromBuffer(filename: string, buffer: Buffer,
   const phone = (text.match(phoneRegex) || [null])?.[0]?.replace(/\s+/g, " ").trim() ?? null;
   const links = Array.from(new Set(text.match(urlRegex) || []));
 
+  
+
   const { nom, prenom } = splitName(text);
   const competences = extractCompetences(text);
   const experiences = extractExperiences(text);
+  const profil = extractProfil(text);
+  const entreprise = extractEntreprise(text, experiences);
+  
 
   return {
     nom,
     prenom,
+    profil,
     email,
+    entreprise,
     telephone: phone,
     adresse: null,
     competences,
@@ -94,3 +125,4 @@ export async function parseCandidateFromBuffer(filename: string, buffer: Buffer,
     langues: [],  
   };
 }
+
