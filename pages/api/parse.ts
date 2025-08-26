@@ -25,6 +25,10 @@ export default async function handler(
     console.log(`📂 ${files?.length || 0} fichiers trouvés dans cvs/`);
 
     const results: { path: string; extracted?: Candidat; error?: string }[] = [];
+    // /api/parse?only=cvs/moncv.docx
+    const only = typeof req.query.only === 'string' ? req.query.only : null;
+    const fileList = only ? [{ name: only.replace(/^cvs\//,'') }] : files; // où files vient de list('cvs')
+
 
     // 2️⃣ Traiter uniquement les fichiers PDF / DOCX
     for (const file of files || []) {

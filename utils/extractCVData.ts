@@ -52,10 +52,12 @@ export function extractProfil(text: string): string | null {
 /**
  * entreprise
  */
-export function extractEntreprise(text: string): string | null {
-  const match = text.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i);
-  return match ? match[0] : null;
+function extractEntreprise(text: string) {
+  // chercher "chez X", "à X", "pour X"
+  const m = text.match(/\b(?:chez|à|pour)\s+([A-Z][A-Za-z0-9&\-' ]{2,})/);
+  return m ? m[1].trim() : null;
 }
+
 
 /**
  * LinkedIn
@@ -110,15 +112,31 @@ export function extractFormations(text: string): Formation[] {
 /**
  * Langues
  */
-export function extractLangues(text: string): Langue[] {
-  const regex = /([A-ZÉ][a-zA-Zéàè]+(?:\s+[A-Z][a-z]+)*)\s*[:\-–]\s*([A-Za-z0-9\s-]+)/g;
-  const langues: Langue[] = [];
-  let m;
-  while ((m = regex.exec(text)) !== null) {
-    langues.push({ langue: m[1].trim(), niveau: m[2].trim() });
+const LANG_LIST = [
+  'français','anglais','espagnol','allemand','italien','portugais','arabe',
+  'chinois','mandarin','japonais','russe','néerlandais','turc','polonais'
+];
+
+const LEVEL_LIST = ['A1','A2','B1','B2','C1','C2','débutant','intermédiaire','avancé','courant','bilingue','natif','native'];
+
+function extractLangues(text: string) {
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const out: { langue: string; niveau: string }[] = [];
+
+  for (const line of lines) {
+    const lower = line.toLowerCase();
+    const langue = LANG_LIST.find(l => lower.includes(l));
+    if (!langue) continue;
+
+    const niveau = LEVEL_LIST.find(n => lower.includes(n.toLowerCase())) ?? '';
+    // Évite les doublons
+    if (!out.some(x => x.langue === langue && x.niveau === niveau)) {
+      out.push({ langue, niveau });
+    }
   }
-  return langues;
+  return out;
 }
+
 
 /**
  * Texte depuis buffer
