@@ -42,6 +42,14 @@ export function extractPoste(text: string): string | null {
 }
 
 /**
+ * Profil
+ */
+export function extractProfil(text: string): string | null {
+  const match = text.match(/^([A-ZÉ][a-zéàè]+(?:[-\s][A-ZÉa-zéàè]+)?)\s+([A-Z][A-Za-zéàè]+)/m);
+  return match ? match[0] : null;
+}
+
+/**
  * entreprise
  */
 export function extractEntreprise(text: string): string | null {
@@ -142,6 +150,7 @@ export async function extractCVData(fileBuffer: Buffer, fileName: string): Promi
     email: extractEmail(text),
     entreprise: extractEntreprise(text),
     poste: extractPoste(text),
+    profil: extractProfil(text),
     telephone: extractTelephone(text),
     adresse: null, // tu peux ajouter une regex pour l'adresse
     competences: extractCompetences(text),
