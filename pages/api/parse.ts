@@ -11,7 +11,7 @@ export default async function handler(
   console.log("👉 /api/parse hit", req.method);
 
   try {
-    // 1️⃣ Lister les fichiers du bucket
+    // 1️⃣ Lister les fichiers dans le dossier "cvs/"
     const { data: files, error: listError } = await supabase
       .storage
       .from('truthtalent')
@@ -22,48 +22,65 @@ export default async function handler(
       return res.status(500).json({ error: 'Erreur listage bucket', details: listError });
     }
 
-    console.log(`📂 ${files.length} fichiers trouvés dans le bucket.`);
+    console.log(`📂 ${files?.length || 0} fichiers trouvés dans cvs/`);
 
     const results: { path: string; extracted?: Candidat; error?: string }[] = [];
 
-    // 2️⃣ Traiter chaque fichier
-    for (const file of files) {
+    // 2️⃣ Traiter uniquement les fichiers PDF / DOCX
+    for (const file of files || []) {
+      if (!(file.name.endsWith('.pdf') || file.name.endsWith('.docx') || file.name.endsWith('.doc'))) {
+        console.log(`⏭️ Ignoré (non CV) : ${file.name}`);
+        continue;
+      }
+
       try {
-        console.log('⬇️ Téléchargement du fichier :', file.name);
+        const fullPath = `cvs/${file.name}`;
+        console.log('⬇️ Téléchargement du fichier :', fullPath);
+
         const { data, error: downloadError } = await supabase
           .storage
           .from('truthtalent')
-          .download(`cvs/${file.name}`);
+          .download(fullPath);
 
         if (downloadError) throw new Error(downloadError.message);
-        
         if (!data) throw new Error('Fichier vide ou non accessible');
 
         const buffer = Buffer.from(await data.arrayBuffer());
 
-        // 3️⃣ Extraire les données
+        // 3️⃣ Extraire les données du CV
         console.log('🧾 Extraction CV :', file.name);
         const extracted = await extractCVData(buffer, file.name);
         console.log('🧠 Données extraites :', extracted);
 
-        // 4️⃣ Insérer en base
-        const { data: dbData, error: dbError } = await supabase
+        // 4️⃣ Insérer en base uniquement si pas déjà présent
+        const { data: existing, error: existingError } = await supabase
           .from('candidats')
-          .insert([extracted])
-          .select();
+          .select('id')
+          .eq('fichier', file.name)
+          .maybeSingle();
 
-        if (dbError) {
-          console.error('❌ Erreur DB', dbError.message);
-        } else {
-          console.log('✅ Insert OK :', dbData);
+        if (existingError) {
+          console.error('⚠️ Erreur vérif doublon :', existingError.message);
         }
-        
 
-        results.push({ path: file.name, extracted });
+        if (!existing) {
+          const { data: dbData, error: dbError } = await supabase
+            .from('candidats')
+            .insert([{ ...extracted, fichier: file.name }])
+            .select();
+
+          if (dbError) throw new Error(dbError.message);
+
+          console.log('✅ Insert OK :', dbData);
+          results.push({ path: fullPath, extracted });
+        } else {
+          console.log(`ℹ️ Déjà en base : ${file.name}`);
+          results.push({ path: fullPath, error: 'Déjà en base' });
+        }
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : 'Erreur inconnue';
         console.error('❌ Erreur pour', file.name, ':', errMsg);
-        results.push({ path: file.name, error: errMsg });
+        results.push({ path: `cvs/${file.name}`, error: errMsg });
       }
     }
 
