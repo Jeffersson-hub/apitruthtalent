@@ -1,5 +1,8 @@
 export interface Formation {
-  raw: string;        // jamais null
+  debut: string;
+  fin: string;
+  diplome: string;
+  ecole: string;      // jamais null
 }
 
 export interface Langue {
@@ -9,11 +12,10 @@ export interface Langue {
 
 export interface Experience {
   poste: string | null;
-  entreprise: string | null;
-  periode?: string | null;
-  description?: string | null;
   debut: string;
-  fin: string;
+  fin: string | null;
+  entreprise: string | null;
+  description?: string;
 }
 
 export interface Candidat {
@@ -27,7 +29,9 @@ export interface Candidat {
   adresse: string | null;
   competences: string[];
   experiences: Experience[];
-  linkedin?: string | null;
   formations: Formation[];
   langues: Langue[];
+  liens: string[];
+  metiers: string[];
+  sourcePath?: string | null;
 }

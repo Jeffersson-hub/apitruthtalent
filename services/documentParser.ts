@@ -1,87 +1,81 @@
 // services/documentParser.ts
-import { Candidat, Experience } from "../types/candidats";
+import { Candidat, Experience, Formation } from "../types/candidats";
 import mammoth from "mammoth";
 import pdfParse from "pdf-parse";
+import competencesDict from "../dictionaries/competences.json";
+import metiersDict from "../dictionaries/metiers.json";
+import profilsDict from "../dictionaries/profils.json";
 
-// heuristiques simples
-const emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+// ========================
+// REGEX de base
+// ========================
+const emailRegex = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const phoneRegex = /(\+?\d[\d\s().-]{7,})/g;
 const urlRegex = /\bhttps?:\/\/[^\s)]+/gi;
 const nameRegex = /\b([A-Z][a-z]+)\s+([A-Z][a-z-]+)\b/;
 
+// ========================
+// HELPERS
+// ========================
 function splitName(fulltext: string): { nom: string | null; prenom: string | null } {
   const m = fulltext.match(nameRegex);
   if (!m) return { nom: null, prenom: null };
-  // heuristique: prenom = premier, nom = second
   return { prenom: m[1] || null, nom: m[2] || null };
 }
 
-function extractProfil(text: string): string | null {
-  const profilRegex = /\b(développeur|developer|engineer|ingénieur|designer|manager|consultant|analyst|data scientist|chef de projet|full stack|backend|frontend)\b/i;
-  const match = text.match(profilRegex);
-  return match ? match[0] : null;
-}
-
 function extractPoste(text: string): string | null {
-  const posteRegex = /\b(développeur|developer|engineer|ingénieur|designer|manager|consultant|analyst|data scientist|chef de projet|full stack|backend|frontend)\b/i;
+  const posteRegex = new RegExp(
+    `\\b(${metiersDict.join("|")})\\b`,
+    "i"
+  );
   const match = text.match(posteRegex);
   return match ? match[0] : null;
 }
 
 function extractEntreprise(text: string, experiences: Experience[]): string | null {
-  // 1️⃣ Essayer de trouver après "chez" ou "à"
+  // 1️⃣ Essayer "chez" / "à" / "pour"
   const entrepriseRegex = /\b(?:chez|à|pour)\s+([A-Z][A-Za-z0-9&\-\s]+)/;
   const match = text.match(entrepriseRegex);
-  if (match) {
-    return match[1].trim();
-  }
+  if (match) return match[1].trim();
 
-  // 2️⃣ Sinon, prendre la première entreprise détectée dans experiences
-  if (experiences.length > 0 && experiences[0].entreprise) {
-    return experiences[0].entreprise;
+  // 2️⃣ Sinon fallback sur expériences
+  if (experiences.length > 0) {
+    return experiences.find(exp => exp.entreprise)?.entreprise ?? null;
   }
 
   return null;
 }
 
-
 function extractCompetences(text: string): string[] {
-  // Exemple de logique d'extraction de compétences
-  const skillKeywords = [
-    'JavaScript', 'TypeScript', 'React', 'Node.js', 'Python', 'SQL',
-    'Machine Learning', 'AWS', 'Docker', 'Git', 'Linux', 'Tensorflow',
-    'Agile', 'Scrum', 'UI/UX', 'Marketing', 'Sales'
-  ];
-
-  const foundSkills: string[] = [];
-
-  skillKeywords.forEach(skill => {
-    if (text.toLowerCase().includes(skill.toLowerCase())) {
-      foundSkills.push(skill);
-    }
-  });
-
-  return foundSkills;
+  const lower = text.toLowerCase();
+  return competencesDict.filter(skill => lower.includes(skill.toLowerCase()));
 }
 
+function extractMetiers(text: string): string[] {
+  const lower = text.toLowerCase();
+  return metiersDict.filter(job => lower.includes(job.toLowerCase()));
+}
 
 function extractExperiences(text: string): Experience[] {
-  // Heuristique minimaliste
-  const lines = text.split(/\r?\n/).slice(0, 400);
-  const exps: Experience[] = [];
-  for (const line of lines) {
-    if (/stage|développeur|engineer|ingénieur|chef de projet|lead|manager/i.test(line)) {
-      exps.push({
-          poste: line.trim(),
-          entreprise: "",
-          debut: "",
-          fin: ""
-      });
-    }
-  }
-  return exps.slice(0, 8);
+  // Exemple simple basé sur YYYY - YYYY
+  const expRegex = /\b(\d{4})\s*-\s*(\d{4}|présent|aujourd'hui)\b(.*?)(?=\d{4}|$)/gis;
+  const matches = [...text.matchAll(expRegex)];
+
+  return matches.map(m => ({
+    debut: m[1],                  // alignement avec type Experience
+    fin: m[2],
+    poste: extractPoste(m[3]) ?? null,
+    entreprise: extractEntreprise(m[3], []),
+    description: m[3].trim(),
+  }));
 }
 
+
+
+
+// ========================
+// CONVERSION DOCX / PDF
+// ========================
 async function docxToText(buffer: Buffer): Promise<string> {
   const res = await mammoth.extractRawText({ buffer });
   return res.value || "";
@@ -96,41 +90,44 @@ export async function extractTextFromBuffer(filename: string, buffer: Buffer): P
   const ext = filename.toLowerCase().split(".").pop();
   if (ext === "docx") return docxToText(buffer);
   if (ext === "pdf") return pdfToText(buffer);
-  // fallback: essayer en texte brut
   return buffer.toString("utf8");
-
 }
 
-export async function parseCandidateFromBuffer(filename: string, buffer: Buffer, sourcePath?: string | null): Promise<Candidat> {
+// ========================
+// MAIN PARSER
+// ========================
+export async function parseCandidateFromBuffer(
+  filename: string,
+  buffer: Buffer,
+  sourcePath?: string | null
+): Promise<Candidat> {
   const text = await extractTextFromBuffer(filename, buffer);
 
   const email = (text.match(emailRegex) || [null])[0];
   const phone = (text.match(phoneRegex) || [null])?.[0]?.replace(/\s+/g, " ").trim() ?? null;
   const links = Array.from(new Set(text.match(urlRegex) || []));
-
-  
-
   const { nom, prenom } = splitName(text);
-  const competences = extractCompetences(text);
+
   const experiences = extractExperiences(text);
-  const profil = extractProfil(text);
   const poste = extractPoste(text);
   const entreprise = extractEntreprise(text, experiences);
-  
+  const competences = extractCompetences(text);
+  const metiers = extractMetiers(text);
 
   return {
     nom,
     prenom,
-    profil,
+    profil: profilsDict[0] ?? null, // ✅ un seul profil (string) au lieu de profils[]
     email,
-    entreprise,
-    poste,
     telephone: phone,
     adresse: null,
+    poste,
+    entreprise: entreprise ?? null, // ✅ string au lieu de tableau
     competences,
     experiences,
-    formations: [], // Valeur par défaut
-    langues: [],  
+    formations: [] as Formation[],
+    langues: [],
+    liens: [],
+    metiers: [],
   };
 }
-
