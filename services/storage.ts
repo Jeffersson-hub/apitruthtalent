@@ -65,7 +65,6 @@ router.post("/parse", async (_req: Request, res: Response) => {
         langues: [],
         profil: null,
         entreprise: null,
-        liens: [],
         metiers: []
       };
 
