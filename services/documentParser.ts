@@ -105,7 +105,7 @@ export async function parseCandidateFromBuffer(
 
   const email = (text.match(emailRegex) || [null])[0];
   const phone = (text.match(phoneRegex) || [null])?.[0]?.replace(/\s+/g, " ").trim() ?? null;
-  const links = Array.from(new Set(text.match(urlRegex) || []));
+  //const links = Array.from(new Set(text.match(urlRegex) || []));
   const { nom, prenom } = splitName(text);
 
   const experiences = extractExperiences(text);
@@ -127,7 +127,6 @@ export async function parseCandidateFromBuffer(
     experiences,
     formations: [] as Formation[],
     langues: [],
-    liens: [],
-    metiers: [],
+    metiers,
   };
 }

@@ -34,4 +34,5 @@ export interface Candidat {
   langues: Langue[];
   linkedin?: string | null;  // ✅ ajouté
   fichier?: string | null;
+  metiers: string [];
 }

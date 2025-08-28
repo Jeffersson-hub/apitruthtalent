@@ -77,6 +77,15 @@ export function extractCompetences(text: string): string[] {
 }
 
 /**
+ * Metiers
+ */
+export function extractMetiers(text: string): string[] {
+  const match = text.match(/Metiers?\s*[:\-]\s*([\s\S]*?)(?=\n\S+:|$)/i);
+  if (!match) return [];
+  return match[1].split(/,|;/).map(c => c.trim()).filter(c => c.length > 0);
+}
+
+/**
  * Expériences
  */
 export function extractExperiences(text: string): Experience[] {
@@ -174,6 +183,7 @@ export async function extractCVData(fileBuffer: Buffer, fileName: string): Promi
     experiences: extractExperiences(text),
     linkedin: extractLinkedIn(text),
     formations: extractFormations(text),
-    langues: extractLangues(text)
+    langues: extractLangues(text), 
+    metiers: extractMetiers(text),
   };
 }
