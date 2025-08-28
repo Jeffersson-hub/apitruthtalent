@@ -88,7 +88,6 @@ export function extractExperiences(text: string): Experience[] {
       poste: null,
       entreprise: m[2]?.trim() || null,
       periode: m[3]?.trim() || null,
-      description: null,
       debut: '',
       fin: ''
     });
