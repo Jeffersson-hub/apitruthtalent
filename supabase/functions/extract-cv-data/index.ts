@@ -1,190 +1,90 @@
-import { createClient } from 'npm:@supabase/supabase-js@2.39.3';
-import * as mammoth from 'npm:mammoth@1.4.17';
-import { Buffer } from 'node:buffer';
-// Configuration de l'extraction intelligente
-const EXTRACTION_PATTERNS = {
-  nom: [
-    /(?:nom\s*[:\-]?\s*)([A-ZÀ-Ÿ][a-zà-ÿ-]+)/i,
-    /(?:last\s*name\s*[:\-]?\s*)([A-ZÀ-Ÿ][a-zà-ÿ-]+)/i
-  ],
-  prenom: [
-    /(?:prénom\s*[:\-]?\s*)([A-ZÀ-Ÿ][a-zà-ÿ-]+)/i,
-    /(?:first\s*name\s*[:\-]?\s*)([A-ZÀ-Ÿ][a-zà-ÿ-]+)/i
-  ],
-  email: [
-    /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/
-  ],
-  telephone: [
-    /(?:\+?33|0)[1-9](?:[\s.-]?\d{2}){4}/,
-    /\+?1?\d{10}/
-  ],
-  adresse: [
-    /(?:adresse\s*[:\-]?\s*)(.{20,100})/i,
-    /(?:address\s*[:\-]?\s*)(.{20,100})/i
-  ],
-  metiers: [
-    /(?:poste|métier|profession)\s*[:\-]?\s*([^\n]+)/i
-  ],
-  competences: [
-    /(?:compétences|skills)[:\-]?\s*([^\n]+)/i
-  ]
+// Deno Edge Function
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { createClient } from "npm:@supabase/supabase-js@2.44.0";
+
+const cors = {
+  "Access-Control-Allow-Origin": "https://truthtalent.online", // ou "*"
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-class CVExtractor {
-  async extractData(fileContent, fileType) {
-    console.log(`Extraction pour type de fichier: ${fileType}`);
-    let text = '';
-    // Extraction par type de fichier
-    switch(fileType){
-      case 'application/pdf':
-        text = await this.extractPDFText(fileContent);
-        break;
-      case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
-        text = await this.extractWordText(fileContent);
-        break;
-      default:
-        console.warn(`Format non standard: ${fileType}`);
-        text = await this.extractGenericText(fileContent);
-    }
-    console.log('Texte extrait (premiers 500 caractères):', text.slice(0, 500));
-    return this.parseExtractedText(text);
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: cors });
   }
-  async extractPDFText(pdfBuffer) {
-    try {
-      const buf = Buffer.from(new Uint8Array(ab));
-      const data = await pdf(buf);
-      return data.text || '';
-    } catch (e) {
-      console.error('Erreur extraction PDF:', e);
-      return '';
-    }
-  }
-  async extractWordText(docxBuffer) {
-    try {
-      const result = await mammoth.extractRawText({
-        buffer: docxBuffer
-      });
-      return result.value;
-    } catch (error) {
-      console.error('Erreur extraction DOCX:', error);
-      return '';
-    }
-  }
-  async extractGenericText(buffer) {
-    try {
-      const decoder = new TextDecoder('utf-8');
-      return decoder.decode(buffer);
-    } catch (error) {
-      console.error('Erreur extraction générique:', error);
-      return '';
-    }
-  }
-  parseExtractedText(text) {
-    const result = {
-      raw_text: text
-    };
-    // Extraction par regex
-    Object.entries(EXTRACTION_PATTERNS).forEach(([key, patterns])=>{
-      for (const pattern of patterns){
-        const match = text.match(pattern);
-        if (match) {
-          result[key] = match[1].trim();
-          console.log(`Trouvé ${key}:`, result[key]);
-          break;
-        }
-      }
-    });
-    return result;
-  }
-}
-// Configuration Supabase
-Deno.serve(async (req)=>{
-  console.log('🚀 Démarrage de l\'extraction des CV');
+
   try {
-    const supabase = createClient(Deno.env.get('SUPABASE_URL'), Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'));
-    // Lister tous les CV
-    const { data: files, error: listError } = await supabase.storage.from('truthtalent').list('cvs', {
-      limit: 100,
-      offset: 0,
-      sortBy: {
-        column: 'name',
-        order: 'asc'
-      }
-    });
-    if (listError) {
-      console.error('Erreur de listing:', listError);
-      throw listError;
+    const { file_path } = await req.json(); // ex: "cvs/moncv.pdf"
+    if (!file_path) {
+      return new Response(JSON.stringify({ error: "file_path required" }), {
+        status: 400, headers: { ...cors, "Content-Type": "application/json" }
+      });
     }
-    console.log(`📂 Nombre de fichiers trouvés: ${files.length}`);
-    const extractor = new CVExtractor();
-    const processedCVs = [];
-    for (const file of files){
-      console.log(`🔍 Traitement du fichier: ${file.name}`);
-      // Télécharger le fichier
-      const { data: fileContent, error: downloadError } = await supabase.storage.from('truthtalent').download(`cvs/${file.name}`);
-      if (downloadError) {
-        console.error(`❌ Erreur de téléchargement: ${file.name}`, downloadError);
-        continue;
-      }
-      try {
-        // Extraction des données
-        const extractedData = await extractor.extractData(await fileContent.arrayBuffer(), fileContent.type);
-        // Si des données ont été extraites
-        if (Object.keys(extractedData).length > 0) {
-          // Insertion dans la base
-          const { data: insertData, error: insertError } = await supabase.from('candidats').upsert({
-            // Mapping exact des colonnes
-            nom: extractedData.nom ?? null,
-            prenom: extractedData.prenom ?? null,
-            email: extractedData.email ?? null,
-            telephone: extractedData.telephone ?? null,
-            adresse: extractedData.adresse ?? null,
-            // Assure-toi que ce sont bien des tableaux JS (pas des strings)
-            competences: Array.isArray(extractedData.competences) ? extractedData.competences : [],
-            experiences: Array.isArray(extractedData.experiences) ? extractedData.experiences : [],
-            formations: Array.isArray(extractedData.formations) ? extractedData.formations : [],
-            langues: Array.isArray(extractedData.langues) ? extractedData.langues : [],
-            // optionnels si colonnes créées :
-            profil: extractedData.profil ?? null,
-            poste: extractedData.poste ?? null,
-            entreprise: extractedData.entreprise ?? null,
-            raw_text: extractedData.raw_text ?? null,
-            fichier: file.name ?? null
-          }).select();
-          if (insertError) {
-            console.error(`❌ Erreur insertion: ${file.name}`, insertError);
-          } else {
-            console.log(`✅ CV traité avec succès: ${file.name}`);
-            processedCVs.push(extractedData);
-          }
-        } else {
-          console.warn(`⚠️ Aucune donnée extraite pour: ${file.name}`);
-        }
-      } catch (extractError) {
-        console.error(`❌ Erreur extraction: ${file.name}`, extractError);
-      }
+
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+    const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!; // nécessaire pour signer + écrire DB
+    const PARSER_URL   = Deno.env.get("EXTERNAL_PARSER_URL")!;       // ex: https://mon-parser.onrender.com/parse
+
+    const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
+
+    // 1) URL signée pour le téléchargement
+    const { data: signed, error: signErr } = await supabase.storage
+      .from("truthtalent")
+      .createSignedUrl(file_path, 900); // 15 min
+
+    if (signErr || !signed) {
+      throw new Error("Cannot sign URL: " + (signErr?.message ?? "unknown"));
     }
-    return new Response(JSON.stringify({
-      message: `Traitement terminé`,
-      cvTraites: processedCVs.length,
-      details: processedCVs
-    }), {
-      headers: {
-        'Content-Type': 'application/json'
-      }
+
+    // 2) Appel au microservice d'extraction
+    const fileName = file_path.split("/").pop()!;
+    const parserRes = await fetch(PARSER_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file_url: signed.signedUrl, file_name: fileName })
     });
-  } catch (error) {
-    console.error('❌ Erreur globale:', error);
-    return new Response(JSON.stringify({
-      error: 'Échec du traitement',
-      details: error.message
-    }), {
-      status: 500,
-      headers: {
-        'Content-Type': 'application/json'
-      }
+
+    if (!parserRes.ok) {
+      const t = await parserRes.text();
+      throw new Error(`Parser error: ${parserRes.status} ${t}`);
+    }
+
+    const { ok, data, error } = await parserRes.json();
+    if (!ok) throw new Error(error || "Parser returned not ok");
+
+    // 3) Upsert en base
+    const upsert = {
+      fichier: data.fichier ?? fileName,
+      nom: data.nom ?? null,
+      prenom: data.prenom ?? null,
+      email: data.email ?? null,
+      telephone: data.telephone ?? null,
+      adresse: data.adresse ?? null,
+      poste: data.poste ?? null,
+      entreprise: data.entreprise ?? null,
+      profil: data.profil ?? null,
+      linkedin: data.linkedin ?? null,
+      competences: data.competences ?? [],
+      metiers: data.metiers ?? [],
+      experiences: data.experiences ?? [],
+      formations: data.formations ?? [],
+      langues: data.langues ?? [],
+      links: data.links ?? [],
+      raw_text: data.raw_text ?? null
+    };
+
+    const { error: dbErr } = await supabase
+      .from("candidats")
+      .upsert(upsert, { onConflict: "fichier" });
+
+    if (dbErr) throw new Error("DB upsert error: " + dbErr.message);
+
+    return new Response(JSON.stringify({ message: "OK", candidat: upsert }), {
+      headers: { ...cors, "Content-Type": "application/json" }
+    });
+  } catch (e: any) {
+    return new Response(JSON.stringify({ error: e.message ?? String(e) }), {
+      status: 500, headers: { ...cors, "Content-Type": "application/json" }
     });
   }
 });
-function pdf(buf) {
-  throw new Error('Function not implemented.');
-}

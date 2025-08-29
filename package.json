@@ -21,6 +21,7 @@
     "mammoth": "^1.10.0",
     "natural": "^8.1.0",
     "next": "^15.5.0",
+    "node-fetch": "^3.3.2",
     "pdf-parse": "^1.1.1",
     "pdfjs-dist": "^5.4.54",
     "react": "^19.1.1",
