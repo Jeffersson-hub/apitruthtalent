@@ -1,23 +1,79 @@
 // Deno Edge Function
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.44.0";
+import * as pdfjsLib from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/+esm";
+
+
+// ⚡ Initialise Supabase client avec variables d’env (injected automatiquement par Supabase)
+const supabase = createClient(
+  Deno.env.get("SUPABASE_URL") ?? "",
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+);
+
+// 🔹 Fonction utilitaire : extrait texte d’un PDF
+async function extractTextFromPdf(fileBytes: ArrayBuffer): Promise<string> {
+  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(fileBytes) }).promise;
+  let text = "";
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    text += content.items.map((it: any) => it.str).join(" ") + "\n";
+  }
+  return text;
+}
+
+Deno.serve(async (req) => {
+  try {
+    const { file_path } = await req.json();
+
+    if (!file_path) {
+      return new Response(JSON.stringify({ error: "file_path is required" }), { status: 400 });
+    }
+
+    // 📥 Télécharger le fichier depuis Supabase Storage
+    const { data, error } = await supabase.storage
+      .from("truthtalent") // 🔹 ton bucket Storage
+      .download(file_path);
+
+    if (error || !data) {
+      return new Response(JSON.stringify({ error: "Failed to download file", details: error }), { status: 500 });
+    }
+
+    // 🔍 Extraire le texte du PDF
+    const arrayBuffer = await data.arrayBuffer();
+    const text = await extractTextFromPdf(arrayBuffer);
+
+    // (Optionnel) Stocker résultat dans table `candidats`
+    await supabase.from("candidats").insert({
+      file_path,
+      extracted_text: text,
+      created_at: new Date().toISOString(),
+    });
+
+    return new Response(JSON.stringify({ file_path, extracted_text: text.slice(0, 500) + "..." }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message }), { status: 500 });
+  }
+});
 
 const cors = {
   "Access-Control-Allow-Origin": "https://truthtalent.online", // ou "*"
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: cors });
+    return new Response("ok", { headers: corsHeaders });
   }
 
   try {
     const { file_path } = await req.json(); // ex: "cvs/moncv.pdf"
     if (!file_path) {
       return new Response(JSON.stringify({ error: "file_path required" }), {
-        status: 400, headers: { ...cors, "Content-Type": "application/json" }
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
 
@@ -41,7 +97,10 @@ serve(async (req) => {
     const parserRes = await fetch(PARSER_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ file_url: signed.signedUrl, file_name: fileName })
+      body: JSON.stringify({
+        file_url: signed.signedUrl,
+        file_name: file_path.split("/").pop(),
+      }),
     });
 
     if (!parserRes.ok) {
