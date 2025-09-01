@@ -124,9 +124,9 @@ export async function parseCandidateFromBuffer(
     poste,
     entreprise: entreprise ?? null, // ✅ string au lieu de tableau
     competences,
-    experiences,
+    //experiences,
     formations: [] as Formation[],
-    langues: [],
+    //langues: [],
     metiers,
   };
 }
