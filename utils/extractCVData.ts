@@ -28,22 +28,25 @@ export async function extractCVData(buffer: Buffer, filename: string): Promise<C
   const lists = parseStructuredLists(raw);
 
   const candidat: Candidat = {
-    fichier: filename,
-    nom,
-    prenom,
-    email,
-    telephone: telephone || null,
-    adresse,
-    poste: null,
-    entreprise: null,
-    profil: null,
-    linkedin,
-    competences: lists.competences,
-    metiers: lists.metiers,
-    experiences: lists.experiences,
-    formations: lists.formations,
-    langues: lists.langues,
-  };
+  fichier: filename,
+  nom: nom || null,
+  prenom: prenom || null,
+  email: email || null,
+  telephone: telephone || null,
+  adresse: adresse || null,
+  poste: null,
+  entreprise: null,
+  profil: null,
+  linkedin: linkedin || null,   // ou lien si c’est le champ attendu
+  competences: lists.competences,
+  metiers: lists.metiers,
+  experiences: lists.experiences,
+  formations: lists.formations,
+  langues: lists.langues,
+  //links, // ⚠️ si ta table a bien un champ jsonb "links"
+  // raw_text: raw, // ❌ retire si pas dans le type Candidat
+};
+
 
   return candidat;
 }
@@ -213,14 +216,6 @@ function toExperiences(section: string): Experience[] {
 
     const description = lines.slice(1).join("\n");
 
-    // out.push({
-    //   titre: sanitizeEmpty(titre),
-    //   //entreprise: sanitizeEmpty(entreprise),
-    //   lieu: undefined,
-    //   date_debut,
-    //   date_fin,
-    //   description: sanitizeEmpty(description),
-    // });
   }
   return out.slice(0, 50);
 }
@@ -264,8 +259,8 @@ function toLangues(section: string): Langue[] {
     // ex: "Anglais (Courant)" → langue=Anglais, niveau=Courant
     const m = x.match(/^(.+?)(?:\s*\((.+)\))?$/);
     return {
-      langue: sanitizeEmpty(m?.[1]) || x,
-      niveau: sanitizeEmpty(m?.[2]) || "",
+        langue: (m?.[1]?.trim() || x),
+      niveau: (m?.[2]?.trim() || ""), // string obligatoire
     };
   });
   return out.slice(0, 20);
