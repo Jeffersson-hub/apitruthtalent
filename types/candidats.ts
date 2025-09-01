@@ -10,7 +10,9 @@ export interface Experience {
 
 export interface Formation {
   intitule?: string;
-  raw?: string;              // ✅ ajouté
+  raw?: string; 
+  diplome?: string;
+  ecole?: string;            // ✅ ajouté
 }
 
 export interface Langue {
@@ -29,10 +31,11 @@ export interface Candidat {
   profil?: string | null;
   entreprise?: string | null;
   competences: string[];
-  experiences: Experience[];
+  // experiences: undefined;
   formations: Formation[];
-  langues: Langue[];
+  //langues: Langue[];
   linkedin?: string | null;  // ✅ ajouté
   fichier?: string | null;
+  lien?: string | null;
   metiers: string [];
 }

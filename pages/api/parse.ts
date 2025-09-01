@@ -2,103 +2,109 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createClient } from "@supabase/supabase-js";
 import { extractCVData } from "../../utils/extractCVData";
-import { Candidat } from "../../types/candidats";
+import type { Candidat } from "../../types/candidats";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  // ✅ Autoriser uniquement POST
+  // CORS (ajuste si besoin)
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Origin", "https://truthtalent.online");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST, OPTIONS");
     return res.status(405).json({ error: "Method Not Allowed" });
   }
 
-  // ✅ CORS headers
-  res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader("Access-Control-Allow-Origin", "https://truthtalent.online");
-  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS,POST");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-
-  // ✅ Init Supabase
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
   if (!supabaseUrl || !supabaseKey) {
-    console.error("❌ Missing Supabase env vars");
+    console.error("❌ Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
     return res.status(500).json({ error: "Server misconfigured" });
-  }
+    }
 
   const supabase = createClient(supabaseUrl, supabaseKey);
 
   try {
-    console.log("👉 /api/parse hit", req.method);
+    const { file_url, file_name, file_path } = (req.body || {}) as {
+      file_url?: string;
+      file_name?: string;
+      file_path?: string; // e.g. "cvs/xxx.pdf"
+    };
 
-    // Lister fichiers
-    const { data: files, error: listError } = await supabase
-      .storage
-      .from("truthtalent")
-      .list("cvs", { limit: 100 });
+    // ---------- Mode 1 : un seul fichier via URL signée ----------
+    if (file_url && file_name) {
+      const buf = Buffer.from(await (await fetch(file_url)).arrayBuffer());
+      const parsed: Candidat = await extractCVData(buf, file_name);
 
-    if (listError) {
-      console.error("❌ Erreur listage bucket:", listError);
-      return res.status(500).json({ error: "Erreur listage bucket", details: listError });
+      const { error: dbErr } = await supabase
+        .from("candidats")
+        .upsert(parsed, { onConflict: "fichier" });
+      if (dbErr) throw new Error("DB upsert error: " + dbErr.message);
+
+      return res.status(200).json({ message: "OK", candidat: parsed });
     }
 
-    const results: { path: string; extracted?: Candidat; error?: string }[] = [];
+    // ---------- Mode 2 : un seul fichier via chemin du bucket ----------
+    if (file_path) {
+      const { data, error: dlErr } = await supabase.storage
+        .from("truthtalent")
+        .download(file_path);
+      if (dlErr || !data) throw new Error("Download error: " + (dlErr?.message || "unknown"));
 
-    for (const file of files || []) {
-      if (!/\.(pdf|docx?|DOCX?)$/.test(file.name)) {
-        console.log(`⏭️ Ignoré : ${file.name}`);
+      const buf = Buffer.from(await data.arrayBuffer());
+      const parsed: Candidat = await extractCVData(buf, file_path.split("/").pop() || file_path);
+
+      const { error: dbErr } = await supabase
+        .from("candidats")
+        .upsert(parsed, { onConflict: "fichier" });
+      if (dbErr) throw new Error("DB upsert error: " + dbErr.message);
+
+      return res.status(200).json({ message: "OK", candidat: parsed });
+    }
+
+    // ---------- Mode 3 : batch sur tout le dossier cvs/ ----------
+    const { data: files, error: listErr } = await supabase.storage
+      .from("truthtalent")
+      .list("cvs", { limit: 200 });
+    if (listErr) throw new Error("List error: " + listErr.message);
+
+    const results: Array<{ path: string; ok?: boolean; error?: string }> = [];
+
+    for (const f of files || []) {
+      const ext = f.name.toLowerCase();
+      if (!ext.match(/\.(pdf|docx)$/)) {
+        results.push({ path: `cvs/${f.name}`, error: "Format non supporté (utiliser PDF ou DOCX)" });
         continue;
       }
 
       try {
-        const fullPath = `cvs/${file.name}`;
-        console.log("⬇️ Téléchargement :", fullPath);
-
-        const { data, error: downloadError } = await supabase
-          .storage
+        const { data, error: dlErr } = await supabase.storage
           .from("truthtalent")
-          .download(fullPath);
+          .download(`cvs/${f.name}`);
+        if (dlErr || !data) throw new Error(dlErr?.message || "download failed");
 
-        if (downloadError) throw new Error(downloadError.message);
-        if (!data) throw new Error("Fichier vide");
+        const buf = Buffer.from(await data.arrayBuffer());
+        const parsed: Candidat = await extractCVData(buf, f.name);
 
-        const buffer = Buffer.from(await data.arrayBuffer());
-
-        console.log("🧾 Extraction CV :", file.name);
-        const extracted = await extractCVData(buffer, file.name);
-
-        // Vérifier doublon
-        const { data: existing } = await supabase
+        const { error: dbErr } = await supabase
           .from("candidats")
-          .select("id")
-          .eq("fichier", file.name)
-          .maybeSingle();
+          .upsert(parsed, { onConflict: "fichier" });
+        if (dbErr) throw new Error(dbErr.message);
 
-        if (!existing) {
-          const { error: dbError } = await supabase
-            .from("candidats")
-            .insert([{ ...extracted, fichier: file.name }]);
-
-          if (dbError) throw new Error(dbError.message);
-
-          console.log("✅ Insert OK :", file.name);
-          results.push({ path: fullPath, extracted });
-        } else {
-          console.log(`ℹ️ Déjà en base : ${file.name}`);
-          results.push({ path: fullPath, error: "Déjà en base" });
-        }
-      } catch (error) {
-        const errMsg = error instanceof Error ? error.message : "Erreur inconnue";
-        console.error("❌ Erreur pour", file.name, ":", errMsg);
-        results.push({ path: `cvs/${file.name}`, error: errMsg });
+        results.push({ path: `cvs/${f.name}`, ok: true });
+      } catch (e: any) {
+        results.push({ path: `cvs/${f.name}`, error: e?.message || String(e) });
       }
     }
 
-    return res.status(200).json({ message: "CV analysés et insérés", results });
-  } catch (e) {
-    const err = e instanceof Error ? e.message : "Erreur inconnue";
-    console.error("💥 Erreur globale /api/parse:", err);
-    return res.status(500).json({ error: err });
+    return res.status(200).json({ message: "Batch terminé", results });
+  } catch (e: any) {
+    console.error("💥 /api/parse error:", e?.message || e);
+    return res.status(500).json({ error: e?.message || "Unknown error" });
   }
 }
 
