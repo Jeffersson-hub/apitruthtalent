@@ -11,7 +11,7 @@ if (!supabaseUrl || !supabaseKey) {
 
 //export const supabase = createClient(supabaseUrl, supabaseKey);
 
-export const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
+export const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
 async function uploadAndParse(file: File) {
   // 1) Upload
@@ -23,9 +23,9 @@ async function uploadAndParse(file: File) {
   if (upErr) throw upErr;
 
   // 2) Appel Edge Function
-  const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/extract-cv-data`, {
+  const res = await fetch(`${process.env.SUPABASE_URL}/functions/v1/extract-cv-data`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY! },
+    headers: { "Content-Type": "application/json", apikey: process.env.SUPABASE_ANON_KEY! },
     body: JSON.stringify({ file_path: path })
   });
   const json = await res.json();

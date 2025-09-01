@@ -1,112 +1,105 @@
 // pages/api/parse.ts
-import type { NextApiRequest, NextApiResponse } from 'next';
-import { supabase } from '../../utils/supabase';
-import { extractCVData } from '../../utils/extractCVData';
-import { Candidat } from '../../types/candidats';
+import type { NextApiRequest, NextApiResponse } from "next";
+import { createClient } from "@supabase/supabase-js";
+import { extractCVData } from "../../utils/extractCVData";
+import { Candidat } from "../../types/candidats";
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse
-) 
-
-{
-res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader("Access-Control-Allow-Origin", "https://truthtalent.online"); // ou "*"
-  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS,POST");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
-
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // ✅ Autoriser uniquement POST
+  if (req.method !== "POST") {
+    res.setHeader("Allow", "POST, OPTIONS");
+    return res.status(405).json({ error: "Method Not Allowed" });
   }
 
-  // ton code normal
-  res.status(200).json({ ok: true });
-  console.log("👉 /api/parse hit", req.method);
+  // ✅ CORS headers
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Origin", "https://truthtalent.online");
+  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS,POST");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+  // ✅ Init Supabase
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !supabaseKey) {
+    console.error("❌ Missing Supabase env vars");
+    return res.status(500).json({ error: "Server misconfigured" });
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseKey);
 
   try {
-    // 1️⃣ Lister les fichiers dans le dossier "cvs/"
+    console.log("👉 /api/parse hit", req.method);
+
+    // Lister fichiers
     const { data: files, error: listError } = await supabase
       .storage
-      .from('truthtalent')
-      .list('cvs', { limit: 100 });
+      .from("truthtalent")
+      .list("cvs", { limit: 100 });
 
     if (listError) {
-      console.error('❌ Erreur listage bucket:', listError);
-      return res.status(500).json({ error: 'Erreur listage bucket', details: listError });
+      console.error("❌ Erreur listage bucket:", listError);
+      return res.status(500).json({ error: "Erreur listage bucket", details: listError });
     }
 
-    console.log(`📂 ${files?.length || 0} fichiers trouvés dans cvs/`);
-
     const results: { path: string; extracted?: Candidat; error?: string }[] = [];
-    // /api/parse?only=cvs/moncv.docx
-    const only = typeof req.query.only === 'string' ? req.query.only : null;
-    const fileList = only ? [{ name: only.replace(/^cvs\//,'') }] : files; // où files vient de list('cvs')
 
-
-    // 2️⃣ Traiter uniquement les fichiers PDF / DOCX
     for (const file of files || []) {
-      if (!(file.name.endsWith('.pdf') || file.name.endsWith('.docx') || file.name.endsWith('.doc'))) {
-        console.log(`⏭️ Ignoré (non CV) : ${file.name}`);
+      if (!/\.(pdf|docx?|DOCX?)$/.test(file.name)) {
+        console.log(`⏭️ Ignoré : ${file.name}`);
         continue;
       }
 
       try {
         const fullPath = `cvs/${file.name}`;
-        console.log('⬇️ Téléchargement du fichier :', fullPath);
+        console.log("⬇️ Téléchargement :", fullPath);
 
         const { data, error: downloadError } = await supabase
           .storage
-          .from('truthtalent')
+          .from("truthtalent")
           .download(fullPath);
 
         if (downloadError) throw new Error(downloadError.message);
-        if (!data) throw new Error('Fichier vide ou non accessible');
+        if (!data) throw new Error("Fichier vide");
 
         const buffer = Buffer.from(await data.arrayBuffer());
 
-        // 3️⃣ Extraire les données du CV
-        console.log('🧾 Extraction CV :', file.name);
+        console.log("🧾 Extraction CV :", file.name);
         const extracted = await extractCVData(buffer, file.name);
-        console.log('🧠 Données extraites :', extracted);
 
-        // 4️⃣ Insérer en base uniquement si pas déjà présent
-        const { data: existing, error: existingError } = await supabase
-          .from('candidats')
-          .select('id')
-          .eq('fichier', file.name)
+        // Vérifier doublon
+        const { data: existing } = await supabase
+          .from("candidats")
+          .select("id")
+          .eq("fichier", file.name)
           .maybeSingle();
 
-        if (existingError) {
-          console.error('⚠️ Erreur vérif doublon :', existingError.message);
-        }
-
         if (!existing) {
-          const { data: dbData, error: dbError } = await supabase
-            .from('candidats')
-            .insert([{ ...extracted, fichier: file.name }])
-            .select();
+          const { error: dbError } = await supabase
+            .from("candidats")
+            .insert([{ ...extracted, fichier: file.name }]);
 
           if (dbError) throw new Error(dbError.message);
 
-          console.log('✅ Insert OK :', dbData);
+          console.log("✅ Insert OK :", file.name);
           results.push({ path: fullPath, extracted });
         } else {
           console.log(`ℹ️ Déjà en base : ${file.name}`);
-          results.push({ path: fullPath, error: 'Déjà en base' });
+          results.push({ path: fullPath, error: "Déjà en base" });
         }
       } catch (error) {
-        const errMsg = error instanceof Error ? error.message : 'Erreur inconnue';
-        console.error('❌ Erreur pour', file.name, ':', errMsg);
+        const errMsg = error instanceof Error ? error.message : "Erreur inconnue";
+        console.error("❌ Erreur pour", file.name, ":", errMsg);
         results.push({ path: `cvs/${file.name}`, error: errMsg });
       }
     }
 
-    return res.status(200).json({ message: 'CV analysés et insérés', results });
+    return res.status(200).json({ message: "CV analysés et insérés", results });
   } catch (e) {
-    const err = e instanceof Error ? e.message : 'Erreur inconnue';
-    console.error('💥 Erreur globale /api/parse:', err);
+    const err = e instanceof Error ? e.message : "Erreur inconnue";
+    console.error("💥 Erreur globale /api/parse:", err);
     return res.status(500).json({ error: err });
   }
 }
 
-export const config = { api: { bodyParser: { sizeLimit: '10mb' } } }
+export const config = { api: { bodyParser: { sizeLimit: "10mb" } } };

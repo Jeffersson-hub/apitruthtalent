@@ -1,149 +1,123 @@
 // Deno Edge Function
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.44.0";
-import * as pdfjsLib from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/+esm";
-
-
-// ⚡ Initialise Supabase client avec variables d’env (injected automatiquement par Supabase)
-const supabase = createClient(
-  Deno.env.get("SUPABASE_URL") ?? "",
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-);
-
-// 🔹 Fonction utilitaire : extrait texte d’un PDF
-async function extractTextFromPdf(fileBytes: ArrayBuffer): Promise<string> {
-  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(fileBytes) }).promise;
-  let text = "";
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const content = await page.getTextContent();
-    text += content.items.map((it: any) => it.str).join(" ") + "\n";
-  }
-  return text;
-}
-
-Deno.serve(async (req) => {
-  try {
-    const { file_path } = await req.json();
-
-    if (!file_path) {
-      return new Response(JSON.stringify({ error: "file_path is required" }), { status: 400 });
-    }
-
-    // 📥 Télécharger le fichier depuis Supabase Storage
-    const { data, error } = await supabase.storage
-      .from("truthtalent") // 🔹 ton bucket Storage
-      .download(file_path);
-
-    if (error || !data) {
-      return new Response(JSON.stringify({ error: "Failed to download file", details: error }), { status: 500 });
-    }
-
-    // 🔍 Extraire le texte du PDF
-    const arrayBuffer = await data.arrayBuffer();
-    const text = await extractTextFromPdf(arrayBuffer);
-
-    // (Optionnel) Stocker résultat dans table `candidats`
-    await supabase.from("candidats").insert({
-      file_path,
-      extracted_text: text,
-      created_at: new Date().toISOString(),
-    });
-
-    return new Response(JSON.stringify({ file_path, extracted_text: text.slice(0, 500) + "..." }), {
-      headers: { "Content-Type": "application/json" },
-    });
-  } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), { status: 500 });
-  }
-});
-
-const cors = {
-  "Access-Control-Allow-Origin": "https://truthtalent.online", // ou "*"
+// 🔹 Configuration CORS
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "https://truthtalent.online",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type"
 };
-
-serve(async (req) => {
+// 🔹 Fonction principale
+serve(async (req)=>{
+  // --- Gestion des préflights CORS ---
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return new Response("ok", {
+      headers: corsHeaders
+    });
   }
-
   try {
-    const { file_path } = await req.json(); // ex: "cvs/moncv.pdf"
+    // --- Récupérer le body ---
+    const { file_path } = await req.json();
     if (!file_path) {
-      return new Response(JSON.stringify({ error: "file_path required" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
+      return new Response(JSON.stringify({
+        error: "file_path is required"
+      }), {
+        status: 400,
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/json"
+        }
       });
     }
-
-    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-    const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!; // nécessaire pour signer + écrire DB
-    const PARSER_URL   = Deno.env.get("EXTERNAL_PARSER_URL")!;       // ex: https://mon-parser.onrender.com/parse
-
+    // --- Config Supabase ---
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
+    const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const PARSER_URL = Deno.env.get("EXTERNAL_PARSER_URL");
+    console.log("SUPABASE_URL:", SUPABASE_URL ? "OK" : "MISSING");
+    console.log("SERVICE_KEY:", SERVICE_KEY ? "OK" : "MISSING");
+    console.log("PARSER_URL:", PARSER_URL ? "OK" : "MISSING");
+    if (!SUPABASE_URL || !SERVICE_KEY) {
+      throw new Error("Supabase configuration missing: SUPABASE_URL or SERVICE_KEY");
+    }
     const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
-
-    // 1) URL signée pour le téléchargement
-    const { data: signed, error: signErr } = await supabase.storage
-      .from("truthtalent")
-      .createSignedUrl(file_path, 900); // 15 min
-
+    // --- Générer URL signée ---
+    const { data: signed, error: signErr } = await supabase.storage.from("truthtalent").createSignedUrl(file_path, 900);
     if (signErr || !signed) {
+      console.error("Sign URL error:", signErr);
       throw new Error("Cannot sign URL: " + (signErr?.message ?? "unknown"));
     }
-
-    // 2) Appel au microservice d'extraction
-    const fileName = file_path.split("/").pop()!;
-    const parserRes = await fetch(PARSER_URL, {
+    console.log("Signed URL generated:", signed.signedUrl);
+    // --- Appel microservice externe ---
+    const fileName = file_path.split("/").pop();
+    console.log("Calling parser with URL:", signed.signedUrl);
+    const parserRes = await fetch(EXTERNAL_PARSER_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json"
+      },
       body: JSON.stringify({
         file_url: signed.signedUrl,
-        file_name: file_path.split("/").pop(),
-      }),
+        file_name: fileName
+      })
     });
-
     if (!parserRes.ok) {
       const t = await parserRes.text();
+      console.error("Parser response:", parserRes.status, t);
       throw new Error(`Parser error: ${parserRes.status} ${t}`);
     }
-
-    const { ok, data, error } = await parserRes.json();
-    if (!ok) throw new Error(error || "Parser returned not ok");
-
-    // 3) Upsert en base
-    const upsert = {
-      fichier: data.fichier ?? fileName,
-      nom: data.nom ?? null,
-      prenom: data.prenom ?? null,
-      email: data.email ?? null,
-      telephone: data.telephone ?? null,
-      adresse: data.adresse ?? null,
-      poste: data.poste ?? null,
-      entreprise: data.entreprise ?? null,
-      profil: data.profil ?? null,
-      linkedin: data.linkedin ?? null,
-      competences: data.competences ?? [],
-      metiers: data.metiers ?? [],
-      experiences: data.experiences ?? [],
-      formations: data.formations ?? [],
-      langues: data.langues ?? [],
-      links: data.links ?? [],
-      raw_text: data.raw_text ?? null
+    const parsed = await parserRes.json();
+    console.log("Parser response:", parsed);
+    if (!parsed || parsed.error) {
+      throw new Error(parsed.error || "Parser failed");
+    }
+    // --- Upsert en base ---
+    const candidat = {
+      fichier: parsed.fichier ?? fileName,
+      nom: parsed.nom ?? null,
+      prenom: parsed.prenom ?? null,
+      email: parsed.email ?? null,
+      telephone: parsed.telephone ?? null,
+      adresse: parsed.adresse ?? null,
+      poste: parsed.poste ?? null,
+      entreprise: parsed.entreprise ?? null,
+      profil: parsed.profil ?? null,
+      linkedin: parsed.linkedin ?? null,
+      competences: parsed.competences ?? [],
+      metiers: parsed.metiers ?? [],
+      experiences: parsed.experiences ?? [],
+      formations: parsed.formations ?? [],
+      langues: parsed.langues ?? [],
+      links: parsed.links ?? [],
+      raw_text: parsed.raw_text ?? null
     };
-
-    const { error: dbErr } = await supabase
-      .from("candidats")
-      .upsert(upsert, { onConflict: "fichier" });
-
-    if (dbErr) throw new Error("DB upsert error: " + dbErr.message);
-
-    return new Response(JSON.stringify({ message: "OK", candidat: upsert }), {
-      headers: { ...cors, "Content-Type": "application/json" }
+    const { error: dbErr } = await supabase.from("candidats").upsert(candidat, {
+      onConflict: "fichier"
     });
-  } catch (e: any) {
-    return new Response(JSON.stringify({ error: e.message ?? String(e) }), {
-      status: 500, headers: { ...cors, "Content-Type": "application/json" }
+    if (dbErr) {
+      console.error("DB upsert error:", dbErr);
+      throw new Error("DB upsert error: " + dbErr.message);
+    }
+    // --- Réponse finale ---
+    return new Response(JSON.stringify({
+      success: true,
+      candidat
+    }), {
+      status: 200,
+      headers: {
+        ...corsHeaders,
+        "Content-Type": "application/json"
+      }
+    });
+  } catch (e) {
+    console.error("Error in Edge Function:", e);
+    return new Response(JSON.stringify({
+      error: e.message ?? String(e)
+    }), {
+      status: 500,
+      headers: {
+        ...corsHeaders,
+        "Content-Type": "application/json"
+      }
     });
   }
 });
