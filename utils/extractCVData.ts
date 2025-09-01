@@ -185,7 +185,7 @@ function toExperiences(section: string): Experience[] {
      ((?:aujourd.?hui|présent|present|now|actuel|current|
        (?:janv\\.?|févr\\.?|mars|avr\\.?|mai|juin|juil\\.?|août|sept\\.?|oct\\.?|nov\\.?|déc\\.?
         |jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)?\\s*\\d{4}|\\d{4}))`,
-    "iux"
+    "iu"
   );
 
   for (const b of blocks) {
