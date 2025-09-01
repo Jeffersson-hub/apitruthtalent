@@ -31,9 +31,9 @@ export interface Candidat {
   profil?: string | null;
   entreprise?: string | null;
   competences: string[];
-  // experiences: undefined;
+  experiences: Experience[];
   formations: Formation[];
-  //langues: Langue[];
+  langues: Langue[];
   linkedin?: string | null;  // ✅ ajouté
   fichier?: string | null;
   lien?: string | null;

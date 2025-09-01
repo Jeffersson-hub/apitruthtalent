@@ -2,10 +2,10 @@
 import type { Candidat, Experience, Formation, Langue } from "../types/candidats";
 
 type ParsedLists = {
+  langues: Langue[];
   competences: string[];
   experiences: Experience[];
   formations: Formation[];
-  //langues: Langue[];
   metiers: string[];
 };
 
@@ -40,9 +40,9 @@ export async function extractCVData(buffer: Buffer, filename: string): Promise<C
     linkedin,
     competences: lists.competences,
     metiers: lists.metiers,
-    // experiences: lists.experiences,
+    experiences: lists.experiences,
     formations: lists.formations,
-    //langues: lists.langues,
+    langues: lists.langues,
   };
 
   return candidat;
@@ -146,10 +146,9 @@ function parseStructuredLists(raw: string): ParsedLists {
   // Expériences / Formations / Langues → objets typés
   const experiences = toExperiences(experiencesText);
   const formations = toFormations(formationsText);
-  // const langues = toLangues(languesText);
+  const langues = toLangues(languesText);
 
-  //return { competences, experiences, formations, langues, metiers };
-  return { competences, experiences, formations, metiers };
+  return { competences, experiences, formations, langues, metiers };
 }
 
 function extractSection(raw: string, startRe: RegExp, stopRe: RegExp): string {
@@ -258,19 +257,19 @@ function toFormations(section: string): Formation[] {
   return out.slice(0, 50);
 }
 
-/* function toLangues(section: string): Langue[] {
+function toLangues(section: string): Langue[] {
   if (!section) return [];
   const items = toList(section);
-  // const out: Langue[] = items.map((x) => {
-  //   // ex: "Anglais (Courant)" → langue=Anglais, niveau=Courant
-  //   const m = x.match(/^(.+?)(?:\s*\((.+)\))?$/);
-  //   return {
-  //     langue: sanitizeEmpty(m?.[1]) || x,
-  //     niveau: sanitizeEmpty(m?.[2]) || undefined,
-  //   };
+  const out: Langue[] = items.map((x) => {
+    // ex: "Anglais (Courant)" → langue=Anglais, niveau=Courant
+    const m = x.match(/^(.+?)(?:\s*\((.+)\))?$/);
+    return {
+      langue: sanitizeEmpty(m?.[1]) || x,
+      niveau: sanitizeEmpty(m?.[2]) || "",
+    };
   });
   return out.slice(0, 20);
-} */
+}
 
 function sanitizeEmpty<T extends string | undefined | null>(v: T): T {
   if (!v) return v;
