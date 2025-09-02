@@ -61,7 +61,7 @@ export default async function handler(
 
         // 2️⃣ Extraire données
         console.log('🧾 Extraction CV :', file.name);
-        const extracted = await extractCVData(buffer, file.name);
+        const extracted = await extractCVData(buffer, file.name, supabase);
         console.log('🧠 Données extraites :', extracted);
 
         // 3️⃣ Vérifier doublon
