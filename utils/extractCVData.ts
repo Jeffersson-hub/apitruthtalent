@@ -9,8 +9,41 @@ type ParsedLists = {
   metiers: string[];
 };
 
+async function loadDictionary(supabase: any, path: string): Promise<string[]> {
+  const { data, error } = await supabase.storage
+    .from("dictionaries") // Remplacez par le nom de votre bucket
+    .download(`dictionaries/${path}`);
 
-export async function extractCVData(buffer: Buffer, filename: string): Promise<Candidat> {
+  if (error || !data) {
+    console.error(`Erreur lors du téléchargement du dictionnaire ${path}:`, error?.message);
+    return [];
+  }
+
+  const text = await data.text();
+  return JSON.parse(text);
+}
+
+async function updateDictionary(supabase: any, path: string, newEntries: string[]): Promise<void> {
+  // 1. Télécharger le dictionnaire existant
+  const currentDict = await loadDictionary(supabase, path);
+
+  // 2. Ajouter les nouvelles entrées (sans doublons)
+  const updatedDict = [...new Set([...currentDict, ...newEntries])];
+
+  // 3. Upload du dictionnaire mis à jour
+  const { error } = await supabase.storage
+    .from("truthtalent") // Remplacez par le nom de votre bucket
+    .upload(`dictionaries/${path}`, new Blob([JSON.stringify(updatedDict, null, 2)], { type: "application/json" }), {
+      upsert: true,
+    });
+
+  if (error) {
+    console.error(`Erreur lors de la mise à jour du dictionnaire ${path}:`, error?.message);
+  }
+}
+
+
+export async function extractCVData(buffer: Buffer, filename: string, supabase: any): Promise<Candidat> {
   const raw = await readText(buffer, filename);
 
 
@@ -65,6 +98,36 @@ console.log(raw.slice(0, 2000)); // max 2000 caractères
 
 
   return candidat;
+}
+
+// Fonction pour normaliser une liste avec un dictionnaire
+async function normalizeWithDictionary(
+  extractedItems: string[],
+  dictionary: string[],
+  supabase: any,
+  dictPath: string
+): Promise<string[]> {
+  const newItems: string[] = [];
+  const normalizedItems: string[] = [];
+
+  for (const item of extractedItems) {
+    const normalizedItem = item.trim().toLowerCase();
+    const exists = dictionary.some((dictItem) => dictItem.trim().toLowerCase() === normalizedItem);
+
+    if (exists) {
+      normalizedItems.push(item); // Conserver l'original pour l'affichage
+    } else {
+      newItems.push(item);
+      normalizedItems.push(item);
+    }
+  }
+
+  // Mettre à jour le dictionnaire si de nouveaux éléments ont été trouvés
+  if (newItems.length > 0) {
+    await updateDictionary(supabase, dictPath, newItems);
+  }
+
+  return normalizedItems;
 }
 
 /* -------------------- Helpers -------------------- */

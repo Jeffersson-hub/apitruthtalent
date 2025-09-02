@@ -11,6 +11,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
+
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
@@ -38,7 +39,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // ---------- Mode 1 : un seul fichier via URL signée ----------
     if (file_url && file_name) {
       const buf = Buffer.from(await (await fetch(file_url)).arrayBuffer());
-      const parsed: Candidat = await extractCVData(buf, file_name);
+      const parsed: Candidat = await extractCVData(buf, file_name, supabase);
 
       const { error: dbErr } = await supabase
         .from("candidats")
@@ -57,7 +58,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (dlErr || !data) throw new Error("Download error: " + (dlErr?.message || "unknown"));
 
       const buf = Buffer.from(await data.arrayBuffer());
-      const parsed: Candidat = await extractCVData(buf, file_path.split("/").pop() || file_path);
+      const parsed: Candidat = await extractCVData(buf, file_path.split("/").pop() || file_path, supabase);
 
       const { error: dbErr } = await supabase
         .from("candidats")
@@ -89,7 +90,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         if (dlErr || !data) throw new Error(dlErr?.message || "download failed");
 
         const buf = Buffer.from(await data.arrayBuffer());
-        const parsed: Candidat = await extractCVData(buf, f.name);
+        const parsed: Candidat = await extractCVData(buf, f.name, supabase);
 
         const { error: dbErr } = await supabase
           .from("candidats")
