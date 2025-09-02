@@ -45,7 +45,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .upsert(parsed, { onConflict: "fichier" });
       if (dbErr) throw new Error("DB upsert error: " + dbErr.message);
 
-      return res.status(200).json({ message: "OK", candidat: parsed });
+      console.log("📝 Parsed candidat:", parsed);
+
     }
 
     // ---------- Mode 2 : un seul fichier via chemin du bucket ----------

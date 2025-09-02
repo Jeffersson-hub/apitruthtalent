@@ -12,7 +12,10 @@ export interface Formation {
   intitule?: string;
   raw?: string; 
   diplome?: string;
-  ecole?: string;            // ✅ ajouté
+  ecole?: string;
+  localisation?: string;
+  date_debut?: string;
+  date_fin?: string;         // ✅ ajouté
 }
 
 export interface Langue {

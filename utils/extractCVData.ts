@@ -9,9 +9,13 @@ type ParsedLists = {
   metiers: string[];
 };
 
+
 export async function extractCVData(buffer: Buffer, filename: string): Promise<Candidat> {
   const raw = await readText(buffer, filename);
 
+
+console.log("===== RAW TEXT =====");
+console.log(raw.slice(0, 2000)); // max 2000 caractères
   // Champs simples
   const email = (raw.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i) || [null])[0];
   const telephone =
@@ -19,10 +23,18 @@ export async function extractCVData(buffer: Buffer, filename: string): Promise<C
     (raw.match(/\+?[0-9][0-9\s\.\-()]{7,}/) || [null])[0];
 
   const linkedin = (raw.match(/https?:\/\/(www\.)?linkedin\.com\/[^\s]+/i) || [null])[0];
-  const links = Array.from(new Set((raw.match(/https?:\/\/[^\s)]+/gi) || []).slice(0, 50)));
+  const lien = Array.from(new Set((raw.match(/https?:\/\/[^\s)]+/gi) || []).slice(0, 50)));
 
   const { nom, prenom } = guessName(raw, filename);
   const adresse = guessAddress(raw);
+
+   // Logs pour le débogage
+  console.log("Extraction pour", filename);
+  console.log("Nom:", nom);
+  console.log("Prénom:", prenom);
+  console.log("Email:", email);
+  console.log("Téléphone:", telephone);
+
 
   // Sections structurées
   const lists = parseStructuredLists(raw);
@@ -38,11 +50,15 @@ export async function extractCVData(buffer: Buffer, filename: string): Promise<C
   entreprise: null,
   profil: null,
   linkedin: linkedin || null,   // ou lien si c’est le champ attendu
-  competences: lists.competences,
-  metiers: lists.metiers,
-  experiences: lists.experiences,
-  formations: lists.formations,
-  langues: lists.langues,
+  competences: [],
+    experiences: [],
+    formations: [],
+    langues: [],
+  // competences: lists.competences,
+  metiers: [],
+  // experiences: lists.experiences,
+  // formations: lists.formations,
+  // langues: lists.langues,
   //links, // ⚠️ si ta table a bien un champ jsonb "links"
   // raw_text: raw, // ❌ retire si pas dans le type Candidat
 };
@@ -175,7 +191,11 @@ function toList(section: string): string[] {
 
 function toExperiences(section: string): Experience[] {
   if (!section) return [];
-  const blocks = section.split(/\n{2,}/).map((b) => b.trim()).filter(Boolean);
+  const blocks = section
+    .split(/\n{2,}/) // séparation par blocs
+    .map((b) => b.trim())
+    .filter(Boolean);
+
   const out: Experience[] = [];
 
   const dateRe = new RegExp(
@@ -194,11 +214,14 @@ function toExperiences(section: string): Experience[] {
 
     const joined = lines.join(" • ");
 
+    // Dates
     const mDate = joined.match(dateRe);
     const range = mDate ? mDate[0] : null;
-    const [date_debut, date_fin] = range ? range.split(/[-–—]/).map((s) => s.trim()) : [undefined, undefined];
+    const [date_debut, date_fin] = range
+      ? range.split(/[-–—]/).map((s) => s.trim())
+      : [undefined, undefined];
 
-    // Titre + entreprise (heuristique)
+    // Titre + entreprise
     const titreLine = lines[0];
     let titre: string | undefined;
     let entreprise: string | undefined;
@@ -209,48 +232,64 @@ function toExperiences(section: string): Experience[] {
       entreprise = e?.trim();
     } else {
       titre = titreLine;
-      // Essaye de trouver une ligne qui ressemble à une entreprise
-      const eLine = lines.slice(1, 3).find((l) => /sas|sa|sarl|ltd|inc|gmbh|entreprises?|company|ltd\./i.test(l));
+      const eLine = lines
+        .slice(1, 3)
+        .find((l) =>
+          /sas|sa|sarl|ltd|inc|gmbh|entreprise|company/i.test(l)
+        );
       entreprise = eLine || undefined;
     }
 
-    const description = lines.slice(1).join("\n");
-
+    out.push({
+      poste: titre || null,
+      entreprise: entreprise || null,
+      periode: range || null,
+      debut: date_debut,
+      fin: date_fin,
+    });
   }
+
   return out.slice(0, 50);
 }
 
 function toFormations(section: string): Formation[] {
   if (!section) return [];
-  const blocks = section.split(/\n{2,}/).map((b) => b.trim()).filter(Boolean);
+  const blocks = section
+    .split(/\n{2,}/)
+    .map((b) => b.trim())
+    .filter(Boolean);
+
   const out: Formation[] = [];
 
   for (const b of blocks) {
     const lines = b.split("\n").map((l) => l.trim()).filter(Boolean);
     if (!lines.length) continue;
 
-    // Heuristique : 1ère ligne = diplôme, 2e = école, le reste = description
     const diplome = sanitizeEmpty(lines[0]);
     const ecole = sanitizeEmpty(lines[1]);
     const description = sanitizeEmpty(lines.slice(2).join("\n"));
 
-    // Dates (année ou mois/année) si présentes dans le bloc
-    const dateRe = /(?:\b(?:\d{4})\b)|(?:(?:janv\.?|févr\.?|mars|avr\.?|mai|juin|juil\.?|août|sept\.?|oct\.?|nov\.?|déc\.?|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s*\d{4})/gi;
+    // Dates (année ou mois/année)
+    const dateRe =
+      /(?:\b(?:\d{4})\b)|(?:(?:janv\.?|févr\.?|mars|avr\.?|mai|juin|juil\.?|août|sept\.?|oct\.?|nov\.?|déc\.?|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s*\d{4})/gi;
     const dates = b.match(dateRe) || [];
     const date_debut = dates[0];
     const date_fin = dates[1];
 
     out.push({
-      diplome,
-      ecole,
-      //lieu: undefined,
-      // date_debut,
-      // date_fin,
+      intitule: diplome,
+      ecole: ecole,
+      raw: b,
+      // tu peux aussi stocker les dates si ta table le permet
+      // debut: date_debut,
+      // fin: date_fin,
       // description,
     });
   }
+
   return out.slice(0, 50);
 }
+
 
 function toLangues(section: string): Langue[] {
   if (!section) return [];

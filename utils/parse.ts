@@ -27,6 +27,9 @@ export default async function handler(
       .from('truthtalent')
       .list('cvs', { limit: 100 });
 
+      
+
+
     if (listError) {
       console.error('❌ Erreur listage bucket:', listError);
       return res.status(500).json({ error: 'Erreur listage bucket', details: listError });
