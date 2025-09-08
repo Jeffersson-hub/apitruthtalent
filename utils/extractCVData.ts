@@ -2,6 +2,7 @@
 import type { Candidat, Experience, Formation, Langue } from "../types/candidats";
 
 type ParsedLists = {
+  postes: string[];
   profils: string[];
   competences: string[];
   experiences: Experience[];
@@ -269,6 +270,7 @@ function parseStructuredLists(raw: string): ParsedLists {
     /(compétences?|skills?|expériences?|experience|formation|education|langues?|languages?)/i
   );
   const profilsText = extractSection(raw, /(profil|profils)/i, /(expériences?|formation|skills?)/i);
+  const postesText = extractSection(raw, /(poste|postes)/i);
 
   const competences = toList(competencesText);
   const profils = toList(profilsText);
@@ -276,19 +278,25 @@ function parseStructuredLists(raw: string): ParsedLists {
   const experiences = toExperiences(experiencesText);
   const formations = toFormations(formationsText);
   const langues = toLangues(languesText);
+  const postes = toList(postesText);
 
-  return { competences, experiences, formations, langues, metiers, profils };
+  return { competences, experiences, formations, langues, metiers, profils, postes };
 }
 
-function extractSection(raw: string, startRe: RegExp, stopRe: RegExp): string {
+function extractSection(raw: string, startRe: RegExp, stopRe?: RegExp): string {
   const mStart = startRe.exec(raw);
   if (!mStart) return "";
   const startIdx = mStart.index + (mStart[0]?.length || 0);
   const rest = raw.slice(startIdx);
+
+  if (!stopRe) return rest.trim();
+
   const mStop = stopRe.exec(rest);
-  const stopIdx = mStop ? mStop.index : rest.length;
+  if (!mStop) return rest.trim();
+  const stopIdx = mStop.index;
   return rest.slice(0, stopIdx).trim();
 }
+
 
 function toList(section: string): string[] {
   if (!section) return [];
