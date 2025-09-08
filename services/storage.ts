@@ -58,7 +58,7 @@ router.post("/parse", async (_req: Request, res: Response) => {
         email: null,
         telephone: null,
         adresse: null,
-        poste: null,
+        postes: [],
         competences: [],
         experiences: [],
         formations: [],
