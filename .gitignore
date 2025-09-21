@@ -31,6 +31,7 @@ coverage/
 
 # Optional: Supabase or other generated folders
 .supabase/
+.dictionaries/
 
 # Lock files (optional: depends on what you use)
 package-lock.json

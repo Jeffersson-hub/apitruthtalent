@@ -11,7 +11,6 @@ type ParsedLists = {
   langues: Langue[];
 };
 
-
 // ------------------ Niveau (CAP -> Doctorat) ------------------
 function mapDiplomeToNiveau(diplome: string | null): string | null {
   if (!diplome) return null;
@@ -31,10 +30,10 @@ function mapDiplomeToNiveau(diplome: string | null): string | null {
 function pickHighestLevel(niveaux: string[]): string | null {
   const order = ["CAP","BEP","BAC","BAC+2","BAC+3","BAC+5","Doctorat"];
   if (!niveaux.length) return null;
-  return niveaux.sort((a, b) => order.indexOf(b) - order.indexOf(a))[0];
+  return niveaux.sort((a, b) => order.indexOf(b) - order.indexOf(a))[0] ?? null;
 }
 
-
+// ------------------ Dictionaries helpers ------------------
 async function loadDictionary(supabase: any, path: string): Promise<string[]> {
   const { data, error } = await supabase.storage
     .from("dictionaries")
@@ -137,17 +136,12 @@ export async function extractCVData(buffer: Buffer, filename: string, supabase: 
     "profils.json"
   );
 
+  // 🔹 Déterminer le (ou les) niveaux présents et choisir le plus élevé
   const niveaux = lists.formations
-  .map(f => mapDiplomeToNiveau(f.intitule || ""))
-  .filter((n): n is string => !!n);
+    .map(f => mapDiplomeToNiveau(f.intitule || null))
+    .filter((n): n is string => !!n);
 
-// Choisir le plus haut niveau si plusieurs
-const niveau = niveaux.length
-  ? niveaux.sort((a, b) =>
-      ["CAP","BEP","BAC","BAC+2","BAC+3","BAC+5","Doctorat"].indexOf(b) -
-      ["CAP","BEP","BAC","BAC+2","BAC+3","BAC+5","Doctorat"].indexOf(a)
-    )[0]
-  : null;
+  const niveau = pickHighestLevel(niveaux);
 
   const candidat: Candidat = {
     fichier: filename,
@@ -165,43 +159,13 @@ const niveau = niveaux.length
     postes,
     profil: profils.length ? profils[0] : null,
     entreprise: null,
-    niveau,
+    niveau // 🔹 ajouté ici
   };
 
   return candidat;
 }
 
-async function normalizeWithDictionary(
-  extractedItems: string[],
-  dictionary: string[],
-  supabase: any,
-  dictPath: string
-): Promise<string[]> {
-  const newItems: string[] = [];
-  const normalizedItems: string[] = [];
-
-  for (const item of extractedItems) {
-    const normalizedItem = item.trim().toLowerCase();
-    const exists = dictionary.some(
-      (dictItem) => dictItem.trim().toLowerCase() === normalizedItem
-    );
-
-    if (exists) {
-      normalizedItems.push(item);
-    } else {
-      newItems.push(item);
-      normalizedItems.push(item);
-    }
-  }
-
-  if (newItems.length > 0) {
-    await updateDictionary(supabase, dictPath, newItems);
-  }
-
-  return normalizedItems;
-}
-
-/* -------------------- Helpers -------------------- */
+/* -------------------- Helpers (readText, parsing, etc.) -------------------- */
 
 async function readText(buffer: Buffer, filename: string): Promise<string> {
   const lower = filename.toLowerCase();
@@ -334,7 +298,6 @@ function extractSection(raw: string, startRe: RegExp, stopRe?: RegExp): string {
   return rest.slice(0, stopIdx).trim();
 }
 
-
 function toList(section: string): string[] {
   if (!section) return [];
   return section
@@ -439,4 +402,34 @@ function sanitizeEmpty<T extends string | undefined | null>(v: T): string | null
   if (!v) return null;
   const s = String(v).trim();
   return s.length ? s : null;
+}
+
+async function normalizeWithDictionary(
+  extractedItems: string[],
+  dictionary: string[],
+  supabase: any,
+  dictPath: string
+): Promise<string[]> {
+  const newItems: string[] = [];
+  const normalizedItems: string[] = [];
+
+  for (const item of extractedItems) {
+    const normalizedItem = item.trim().toLowerCase();
+    const exists = dictionary.some(
+      (dictItem) => dictItem.trim().toLowerCase() === normalizedItem
+    );
+
+    if (exists) {
+      normalizedItems.push(item);
+    } else {
+      newItems.push(item);
+      normalizedItems.push(item);
+    }
+  }
+
+  if (newItems.length > 0) {
+    await updateDictionary(supabase, dictPath, newItems);
+  }
+
+  return normalizedItems;
 }
