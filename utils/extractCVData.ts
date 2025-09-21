@@ -149,12 +149,6 @@ const niveau = niveaux.length
     )[0]
   : null;
 
-  // 🔹 Déterminer le niveau le plus haut
-  const niveauxTrouves = lists.formations
-    .map(f => mapDiplomeToNiveau(f.intitule || ""))
-    .filter((n): n is string => !!n);
-
-
   const candidat: Candidat = {
     fichier: filename,
     nom,

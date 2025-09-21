@@ -104,6 +104,7 @@ export async function parseCandidateFromBuffer(
   const entreprise = extractEntreprise(text, experiences);
   const competences = extractCompetences(text);
   const metiers = extractMetiers(text);
+  const niveau = extractNiveau(text);
 
   return {
     nom,
@@ -119,5 +120,21 @@ export async function parseCandidateFromBuffer(
     formations: [] as Formation[],
     langues: [],
     metiers,
+    niveau,
   };
 }
+function extractNiveau(text: string): string | null {
+  const d = text.toLowerCase();
+
+  if (/cap|certificat d'aptitude/.test(d)) return "CAP";
+  if (/bep|brevet d'études professionnelles/.test(d)) return "BEP";
+  if (/\bbac\b|baccalauréat/.test(d)) return "BAC";
+  if (/bac\+2|bts|dut|deug/.test(d)) return "BAC+2";
+  if (/licence|bachelor|bac\+3/.test(d)) return "BAC+3";
+  if (/master|bac\+5|ingénieur/.test(d)) return "BAC+5";
+  if (/doctorat|phd|bac\+8/.test(d)) return "Doctorat";
+
+  return null;
+}
+
+
