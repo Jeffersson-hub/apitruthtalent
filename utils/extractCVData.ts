@@ -11,6 +11,30 @@ type ParsedLists = {
   langues: Langue[];
 };
 
+
+// ------------------ Niveau (CAP -> Doctorat) ------------------
+function mapDiplomeToNiveau(diplome: string | null): string | null {
+  if (!diplome) return null;
+  const d = diplome.toLowerCase();
+
+  if (/cap|certificat d'aptitude/.test(d)) return "CAP";
+  if (/bep|brevet d'études professionnelles/.test(d)) return "BEP";
+  if (/\bbac\b|baccalauréat/.test(d)) return "BAC";
+  if (/bac\+2|bts|dut|deug/.test(d)) return "BAC+2";
+  if (/licence|bachelor|bac\+3/.test(d)) return "BAC+3";
+  if (/master|bac\+5|ingénieur/.test(d)) return "BAC+5";
+  if (/doctorat|phd|bac\+8/.test(d)) return "Doctorat";
+
+  return null;
+}
+
+function pickHighestLevel(niveaux: string[]): string | null {
+  const order = ["CAP","BEP","BAC","BAC+2","BAC+3","BAC+5","Doctorat"];
+  if (!niveaux.length) return null;
+  return niveaux.sort((a, b) => order.indexOf(b) - order.indexOf(a))[0];
+}
+
+
 async function loadDictionary(supabase: any, path: string): Promise<string[]> {
   const { data, error } = await supabase.storage
     .from("dictionaries")
@@ -113,6 +137,24 @@ export async function extractCVData(buffer: Buffer, filename: string, supabase: 
     "profils.json"
   );
 
+  const niveaux = lists.formations
+  .map(f => mapDiplomeToNiveau(f.intitule || ""))
+  .filter((n): n is string => !!n);
+
+// Choisir le plus haut niveau si plusieurs
+const niveau = niveaux.length
+  ? niveaux.sort((a, b) =>
+      ["CAP","BEP","BAC","BAC+2","BAC+3","BAC+5","Doctorat"].indexOf(b) -
+      ["CAP","BEP","BAC","BAC+2","BAC+3","BAC+5","Doctorat"].indexOf(a)
+    )[0]
+  : null;
+
+  // 🔹 Déterminer le niveau le plus haut
+  const niveauxTrouves = lists.formations
+    .map(f => mapDiplomeToNiveau(f.intitule || ""))
+    .filter((n): n is string => !!n);
+
+
   const candidat: Candidat = {
     fichier: filename,
     nom,
@@ -129,6 +171,7 @@ export async function extractCVData(buffer: Buffer, filename: string, supabase: 
     postes,
     profil: profils.length ? profils[0] : null,
     entreprise: null,
+    niveau,
   };
 
   return candidat;
@@ -257,7 +300,7 @@ function parseStructuredLists(raw: string): ParsedLists {
   const formationsText = extractSection(
     raw,
     /(formation|education)/i,
-    /(expériences?|experience|compétences?|skills?|langues?|languages?)/i
+    /(expériences?|experience|compétences?|skills?|langues?|languages?|niveau?)/i
   );
   const languesText = extractSection(
     raw,

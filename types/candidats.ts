@@ -41,4 +41,5 @@ export interface Candidat {
   fichier?: string | null;
   lien?: string | null;
   metiers: string [];
+  niveau: string | null;
 }
