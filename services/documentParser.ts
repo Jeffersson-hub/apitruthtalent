@@ -2,213 +2,436 @@
 import { Candidat, Experience, Formation } from "../types/candidats";
 import mammoth from "mammoth";
 import pdfParse from "pdf-parse";
-import competencesDict from "../dictionaries/competences.json";
-import metiersDict from "../dictionaries/metiers.json";
-import profilsDict from "../dictionaries/profils.json";
 
 // ========================
-// REGEX de base
+// TYPES
 // ========================
-const emailRegex = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
-const phoneRegex = /(\+?\d[\d\s().-]{7,})/g;
-const urlRegex = /\bhttps?:\/\/[^\s)]+/gi;
-const nameRegex = /\b([A-Z][a-zà-öø-ÿ]+)\s+([A-Z][A-Za-zÀ-ÖØ-öø-ÿ-]+)\b/;
+interface NameResult {
+  nom: string | null;
+  prenom: string | null;
+}
+
+// ========================
+// REGEX
+// ========================
+const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/gi;
+const phoneRegex = /(\+33|0)[1-9](\d{2}){4}/g;
 
 // ========================
 // HELPERS
 // ========================
-function splitName(fulltext: string): { nom: string | null; prenom: string | null } {
-  const m = fulltext.match(nameRegex);
-  if (!m) return { nom: null, prenom: null };
-  return { prenom: m[1] || null, nom: m[2] || null };
+function splitName(fulltext: string): NameResult {
+  const lines = fulltext.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+  
+  if (lines.length === 0) {
+    return { nom: null, prenom: null };
+  }
+
+  const firstLine = lines[0];
+  const words = firstLine.split(/\s+/).filter(word => word.length > 1);
+  
+  if (words.length >= 2) {
+    if (isMostlyUpper(words[0])) {
+      return { nom: words[0], prenom: words.slice(1).join(' ') };
+    } else {
+      return { prenom: words[0], nom: words.slice(1).join(' ') };
+    }
+  }
+  
+  return { nom: null, prenom: null };
+}
+
+function isMostlyUpper(s: string): boolean {
+  const letters = s.replace(/[^A-Za-zÀ-ÖØ-öø-ÿ]/g, "");
+  if (letters.length === 0) return false;
+  const uppers = letters.replace(/[a-zà-öø-ÿ]/g, "");
+  return uppers.length / letters.length > 0.6;
 }
 
 function extractPoste(text: string): string[] {
-  if (!Array.isArray(metiersDict)) return [];
-  const posteRegex = new RegExp(`\\b(${metiersDict.join("|")})\\b`, "ig");
-  const matches = text.match(posteRegex);
-  return matches ? Array.from(new Set(matches.map(s => s.trim()))) : [];
+  const postesCommuns = [
+    'chef de chantier', 'maçon', 'manœuvre', 'professeur', 'violoniste', 
+    'musicien', 'maquilleuse', 'esthéticienne', 'assistante'
+  ];
+  
+  const postesTrouves: string[] = [];
+  const textLower = text.toLowerCase();
+  
+  postesCommuns.forEach(poste => {
+    if (textLower.includes(poste.toLowerCase())) {
+      postesTrouves.push(poste);
+    }
+  });
+  
+  return postesTrouves;
 }
 
 function extractEntreprise(text: string, experiences: Experience[]): string | null {
-  const entrepriseRegex = /\b(?:chez|à|pour)\s+([A-Z][A-Za-z0-9&\-\s]+)/i;
+  const entrepriseRegex = /(?:chez|à|pour|entreprise|société)[\s:]+([A-Z][A-Za-z0-9&\-\s]{3,})/i;
   const match = text.match(entrepriseRegex);
   if (match) return match[1].trim();
 
   if (experiences.length > 0) {
-    return experiences.find(exp => exp.entreprise)?.entreprise ?? null;
+    for (const exp of experiences) {
+      if (exp.entreprise) return exp.entreprise;
+    }
   }
 
   return null;
 }
 
+function extractSection(text: string, startRegex: RegExp, endRegex: RegExp): string {
+  const startMatch = startRegex.exec(text);
+  if (!startMatch) return '';
+
+  let startIndex = startMatch.index + startMatch[0].length;
+  let remainingText = text.slice(startIndex);
+
+  const endMatch = endRegex.exec(remainingText);
+  if (endMatch) {
+    remainingText = remainingText.slice(0, endMatch.index);
+  }
+
+  return remainingText.trim();
+}
+
+// ========================
+// EXTRACTION COMPÉTENCES
+// ========================
 function extractCompetences(text: string): string[] {
-  const lower = text.toLowerCase();
-  return (Array.isArray(competencesDict) ? competencesDict : [])
-    .filter(skill => lower.includes(skill.toLowerCase()));
+  const competencesSection = extractSection(
+    text, 
+    /(compétences|skills|savoirs-faires?|qualifications)/i,
+    /(expériences|expérience|formations|formation|langues)/i
+  );
+  
+  if (!competencesSection) {
+    return extractCompetencesFromText(text);
+  }
+
+  return extractCompetencesFromSection(competencesSection);
 }
 
+function extractCompetencesFromSection(section: string): string[] {
+  const cleanedText = section
+    .replace(/[�■□▢▣▤▥▦▧▨▩▪▫▬▭▮▯▰▱▲△▴▵▶▷▸▹►▻▼▽▾▿◀◁◂◃◄◅◆◇◈◉◊○◌◍◎●◐◑◒◓◔◕◖◗◘◙◚◛◜◝◞◟◠◡◢◣◤◥◦◧◨◩◪◫◬◭◮◯]/g, '')
+    .replace(/\uf0b7/g, '•')
+    .normalize('NFKD');
+
+  const competences = cleanedText
+    .split(/\n|•|●|▪|–|-|—|\.\s+|;/)
+    .map(s => s.replace(/^[•●▪–—\s\t-]+/, '').trim())
+    .filter(s => s.length > 2 && 
+                !/^[0-9\.]+$/.test(s) && 
+                !/compétences?|skills?|savoirs-faires?/i.test(s))
+    .slice(0, 15);
+
+  return [...new Set(competences)];
+}
+
+function extractCompetencesFromText(text: string): string[] {
+  const competencesCommunes = [
+    'maçonnerie', 'ferraillage', 'tracés', 'lecture de plans', 'violon',
+    'enseignement musical', 'organisation d\'événements', 'maquillage artistique',
+    'maquillage de mariée', 'conseils en image', 'gestion de chantier', 'planification'
+  ];
+
+  const competencesTrouvees: string[] = [];
+  const textLower = text.toLowerCase();
+
+  competencesCommunes.forEach(competence => {
+    if (textLower.includes(competence.toLowerCase())) {
+      competencesTrouvees.push(competence);
+    }
+  });
+
+  return competencesTrouvees.slice(0, 10);
+}
+
+// ========================
+// EXTRACTION MÉTIERS
+// ========================
 function extractMetiers(text: string): string[] {
-  const lower = text.toLowerCase();
-  return (Array.isArray(metiersDict) ? metiersDict : [])
-    .filter(job => lower.includes(job.toLowerCase()));
+  const metiers: string[] = [];
+  
+  const experiences = extractExperiences(text);
+  experiences.forEach(exp => {
+    if (exp.poste && !metiers.includes(exp.poste)) {
+      metiers.push(exp.poste);
+    }
+  });
+
+  const metierPatterns = [
+    /(?:poste|métier|profession|emploi)[\s:]*([^\n\.]+)/i,
+    /(?:recherche|recherché)[\s:]*([^\n\.]+)/i,
+    /(?:profil|profil recherché)[\s:]*([^\n\.]+)/i,
+    /(?:actuellement|currently)[\s:]*([^\n\.]+)/i
+  ];
+
+  metierPatterns.forEach(pattern => {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      const metier = match[1].trim();
+      if (metier && metier.length > 2 && !metiers.includes(metier)) {
+        metiers.push(metier);
+      }
+    }
+  });
+
+  return metiers.slice(0, 3);
 }
 
+// ========================
+// EXTRACTION EXPÉRIENCES (CORRIGÉE)
+// ========================
 function extractExperiences(text: string): Experience[] {
-  const expRegex = /\b(\d{4})\s*[-–—]\s*(\d{4}|présent|aujourd'hui)\b(.*?)(?=\n\s*\d{4}\s*[-–—]|\n{2,}|$)/gis;
+  const experiencesSection = extractSection(
+    text,
+    /(expériences?|experience|parcours professionnel)/i,
+    /(formations?|formation|éducation|compétences)/i
+  );
+
+  if (!experiencesSection) return [];
+
+  const expRegex = /(\d{4})\s*[-–—]\s*(\d{4}|présent|aujourd'hui|actuel)(.*?)(?=\d{4}\s*[-–—]|$)/gis;
   const matches = Array.from(text.matchAll(expRegex));
 
-  return matches.map(m => ({
-    debut: m[1] ?? null,
-    fin: m[2] ?? null,
-    poste: (m[3] && extractPoste(m[3])[0]) ?? null,
-    entreprise: extractEntreprise(m[3] ?? "", []),
-    description: (m[3] ?? "").trim(),
-  }));
+  return matches.map(match => {
+    const description = match[3] || '';
+    const posteMatch = description.match(/^(.*?)(?= - | chez | à |$)/);
+    
+    const experience: Experience = {
+      debut: match[1] || null,
+      fin: match[2] || null,
+      poste: posteMatch ? posteMatch[1].trim() : null,
+      entreprise: extractEntrepriseFromExperience(description),
+      description: description.trim(),
+    };
+    
+    return experience;
+  }).filter(exp => exp.poste !== null);
+}
+
+function extractEntrepriseFromExperience(description: string): string | null {
+  const entrepriseRegex = /(?: - | chez | à |entreprise |société )([A-Z][A-Za-z0-9&\-\s]{2,})/i;
+  const match = description.match(entrepriseRegex);
+  return match ? match[1].trim() : null;
 }
 
 // ========================
-// CONVERSION DOCX / PDF
+// EXTRACTION FORMATIONS (CORRIGÉE)
 // ========================
-async function docxToText(buffer: Buffer): Promise<string> {
-  const res = await mammoth.extractRawText({ buffer });
-  return res.value || "";
+function extractFormations(text: string): Formation[] {
+  const formationsSection = extractSection(
+    text,
+    /(formations?|formation|éducation|diplômes?|diplome)/i,
+    /(expériences?|experience|compétences|langues|centres d'intérêt)/i
+  );
+
+  if (!formationsSection) return [];
+
+  const blocks = formationsSection.split(/\n{2,}/).map(b => b.trim()).filter(Boolean);
+  const formations: Formation[] = [];
+
+  for (const block of blocks) {
+    const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
+    if (lines.length === 0) continue;
+
+    const intitule = lines[0].replace(/^[•\-*]\s*/, '').trim();
+    const ecole = lines.length > 1 ? lines[1].trim() : null;
+
+    if (intitule) {
+      const formation: Formation = {
+        intitule,
+        ecole,
+        diplome: intitule, // Utiliser intitule comme diplome par défaut
+        raw: block
+      };
+      formations.push(formation);
+    }
+  }
+
+  return formations.slice(0, 10);
 }
 
-async function pdfToText(buffer: Buffer): Promise<string> {
-  const res = await pdfParse(buffer);
-  return res.text || "";
+// ========================
+// EXTRACTION NIVEAU
+// ========================
+function extractNiveau(text: string): string | null {
+  const niveauDirect = extractNiveauFromText(text);
+  if (niveauDirect) return niveauDirect;
+
+  const niveauFromFormations = extractNiveauFromFormations(text);
+  if (niveauFromFormations) return niveauFromFormations;
+
+  return null;
 }
 
-export async function extractTextFromBuffer(filename: string, buffer: Buffer): Promise<string> {
-  const ext = filename.toLowerCase().split(".").pop();
-  if (ext === "docx") return docxToText(buffer);
-  if (ext === "pdf") return pdfToText(buffer);
-  return buffer.toString("utf8");
+function extractNiveauFromText(text: string): string | null {
+  const niveauRegex = /\b(CAP|BEP|BAC|BAC\+2|BTS|DUT|BAC\+3|Licence|Bachelor|BAC\+5|Master|Ingénieur|Doctorat|PhD)\b/gi;
+  const matches = text.match(niveauRegex);
+  
+  if (!matches || matches.length === 0) return null;
+
+  const niveaux = matches.map(m => m.toUpperCase().replace(/\s+/g, ''));
+  return pickHighestLevel(niveaux);
 }
 
-// ------------------ Mapping diplômes -> niveau ------------------
-function mapDiplomeToNiveau(diplome: string | null): string | null {
-  if (!diplome) return null;
-  const d = diplome.toLowerCase();
+function extractNiveauFromFormations(text: string): string | null {
+  const formations = extractFormations(text);
+  const niveaux: string[] = [];
 
-  if (/cap|certificat d'aptitude/.test(d)) return "CAP";
-  if (/bep|brevet d'études professionnelles/.test(d)) return "BEP";
-  if (/\bbac\b|baccalauréat/.test(d)) return "BAC";
-  if (/bac\+2|bts|dut|deug/.test(d)) return "BAC+2";
-  if (/licence|bachelor|bac\+3/.test(d)) return "BAC+3";
-  if (/master|bac\+5|ingénieur/.test(d)) return "BAC+5";
-  if (/doctorat|phd|bac\+8/.test(d)) return "Doctorat";
+  const niveauPatterns = {
+    'CAP': /cap|certificat d'aptitude professionnelle/i,
+    'BEP': /bep|brevet d'études professionnelles/i,
+    'BAC': /\bbac\b|baccalauréat/i,
+    'BAC+2': /bac\+2|bts|dut|deug/i,
+    'BAC+3': /bac\+3|licence|bachelor/i,
+    'BAC+5': /bac\+5|master|ingénieur/i,
+    'Doctorat': /doctorat|phd|bac\+8/i
+  };
+
+  formations.forEach(formation => {
+    const intitule = formation.intitule || '';
+    for (const [niveau, pattern] of Object.entries(niveauPatterns)) {
+      if (pattern.test(intitule)) {
+        niveaux.push(niveau);
+      }
+    }
+  });
+
+  if (niveaux.length > 0) {
+    return pickHighestLevel(niveaux);
+  }
 
   return null;
 }
 
 function pickHighestLevel(niveaux: string[]): string | null {
-  const order = ["CAP","BEP","BAC","BAC+2","BAC+3","BAC+5","Doctorat"];
-  if (!niveaux.length) return null;
-  return niveaux.sort((a, b) => order.indexOf(b) - order.indexOf(a))[0] ?? null;
-}
-
-// ========================
-// EXTRACTION FORMATIONS + NIVEAU
-// ========================
-function extractFormations(text: string): Formation[] {
-  const startRe = /(formation|formations|education|dipl[oô]mes?|diplome|certificat)/i;
-  const stopRe = /(expériences?|experience|compétences?|skills?|langues?|languages?|centres|hobbies|certificat|certifications?)/i;
-
-  const mStart = startRe.exec(text);
-  if (!mStart) return [];
-
-  const startIdx = mStart.index + mStart[0].length;
-  let rest = text.slice(startIdx);
-
-  const mStop = stopRe.exec(rest);
-  if (mStop) rest = rest.slice(0, mStop.index);
-
-  // Séparer en blocs (double saut de ligne). Si pas de double saut, chaque ligne possiblement contient une formation
-  const blocks = rest.split(/\n{2,}/).map(b => b.trim()).filter(Boolean);
-
-  const out: Formation[] = blocks.flatMap(b => {
-    // Un bloc peut contenir plusieurs lignes; chaque ligne commençant par une puce ou une majuscule peut être une formation
-    const lines = b.split(/\n/).map(l => l.replace(/^[•●▪–—\s\t\uf0b7]+/, "").trim()).filter(Boolean);
-    if (lines.length === 0) return [];
-    // Si une seule ligne -> créer une formation
-    if (lines.length === 1) {
-      return [{
-        intitule: lines[0] || null,
-        raw: b
-      }];
+  const order = ["CAP", "BEP", "BAC", "BAC+2", "BAC+3", "BAC+5", "Doctorat"];
+  if (niveaux.length === 0) return null;
+  
+  let highest = niveaux[0];
+  for (const niveau of niveaux) {
+    const currentIndex = order.indexOf(niveau);
+    const highestIndex = order.indexOf(highest);
+    if (currentIndex > highestIndex) {
+      highest = niveau;
     }
-    // 1ère ligne = intitule, 2ème ligne = école (si pertinente)
-    return [{
-      intitule: lines[0] || null,
-      ecole: lines[1] || null,
-      raw: b
-    }];
-  });
-
-  return out.slice(0, 50);
-}
-
-function extractNiveau(text: string): string | null {
-  // 1) Cherche dans la section "formations"
-  const formations = extractFormations(text);
-  const niveauxFromFormations = formations
-    .map(f => mapDiplomeToNiveau(f.intitule ?? null))
-    .filter((n): n is string => !!n);
-
-  if (niveauxFromFormations.length) {
-    return pickHighestLevel(niveauxFromFormations);
   }
-
-  // 2) fallback : recherche dans tout le texte des mots-clés
-  const fallbackMatch = text.match(/\b(CAP|BEP|BTS|DUT|Licence|Bachelor|Master|Doctorat|PhD|Baccalauréat|bac\+?\d?)/i);
-  if (fallbackMatch) {
-    return mapDiplomeToNiveau(fallbackMatch[0]) ?? null;
-  }
-
-  return null;
+  
+  return highest;
 }
 
 // ========================
-// MAIN PARSER
+// CONVERSION DOCX/PDF
+// ========================
+async function docxToText(buffer: Buffer): Promise<string> {
+  try {
+    const result = await mammoth.extractRawText({ buffer });
+    return result.value || "";
+  } catch (error) {
+    console.error("Erreur conversion DOCX:", error);
+    return "";
+  }
+}
+
+async function pdfToText(buffer: Buffer): Promise<string> {
+  try {
+    const data = await pdfParse(buffer);
+    return data.text || "";
+  } catch (error) {
+    console.error("Erreur conversion PDF:", error);
+    return "";
+  }
+}
+
+export async function extractTextFromBuffer(filename: string, buffer: Buffer): Promise<string> {
+  const ext = filename.toLowerCase().split('.').pop();
+  
+  try {
+    if (ext === 'docx') {
+      return await docxToText(buffer);
+    } else if (ext === 'pdf') {
+      return await pdfToText(buffer);
+    } else {
+      return buffer.toString('utf8');
+    }
+  } catch (error) {
+    console.error(`Erreur extraction texte depuis ${filename}:`, error);
+    return buffer.toString('utf8');
+  }
+}
+
+// ========================
+// FONCTION PRINCIPALE (CORRIGÉE)
 // ========================
 export async function parseCandidateFromBuffer(
   filename: string,
   buffer: Buffer,
   sourcePath?: string | null
 ): Promise<Candidat> {
-  const text = await extractTextFromBuffer(filename, buffer);
+  try {
+    const rawText = await extractTextFromBuffer(filename, buffer);
+    
+    const cleanText = rawText
+      .replace(/[^\x00-\x7F]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
 
-  const email = (text.match(emailRegex) || [null])[0] ?? null;
-  const phone = (text.match(phoneRegex) || [null])?.[0]?.replace(/\s+/g, " ").trim() ?? null;
-  const { nom, prenom } = splitName(text);
+    const emailMatch = cleanText.match(emailRegex);
+    const email = emailMatch ? emailMatch[0] : null;
 
-  const experiences = extractExperiences(text);
-  const postes = extractPoste(text);
-  const entreprise = extractEntreprise(text, experiences);
-  const competences = extractCompetences(text);
-  const metiers = extractMetiers(text);
-  const formations = extractFormations(text);
-  const niveau = extractNiveau(text);
+    const phoneMatch = cleanText.match(phoneRegex);
+    const phone = phoneMatch ? phoneMatch[0] : null;
 
-  const candidat: Candidat = {
-    nom,
-    prenom,
-    //profil: (Array.isArray(profilsDict) && profilsDict[0]) ?? null,
-    profil: null,
-    email,
-    telephone: phone,
-    adresse: null,
-    postes,
-    entreprise: entreprise ?? null,
-    competences,
-    experiences,
-    formations,
-    langues: [],
-    metiers,
-    niveau,
-  };
+    const { nom, prenom } = splitName(cleanText);
+    const experiences = extractExperiences(cleanText);
+    const postes = extractPoste(cleanText);
+    const entreprise = extractEntreprise(cleanText, experiences);
+    const competences = extractCompetences(cleanText);
+    const metiers = extractMetiers(cleanText);
+    const formations = extractFormations(cleanText);
+    const niveau = extractNiveau(cleanText);
 
-  return candidat;
+    const candidat: Candidat = {
+      nom: nom || null,
+      prenom: prenom || null,
+      profil: null,
+      email: email || null,
+      telephone: phone || null,
+      adresse: null,
+      postes: postes.length > 0 ? postes : [],
+      entreprise: entreprise || null,
+      competences: competences.length > 0 ? competences : [],
+      experiences: experiences.length > 0 ? experiences : [],
+      formations: formations.length > 0 ? formations : [],
+      langues: [],
+      metiers: metiers.length > 0 ? metiers : [],
+      niveau: niveau || null,
+    };
+
+    console.log(`✅ Candidat parsé: ${prenom} ${nom} - Niveau: ${niveau}`);
+    return candidat;
+
+  } catch (error) {
+    console.error(`❌ Erreur parsing ${filename}:`, error);
+    
+    return {
+      nom: null,
+      prenom: null,
+      profil: null,
+      email: null,
+      telephone: null,
+      adresse: null,
+      postes: [],
+      entreprise: null,
+      competences: [],
+      experiences: [],
+      formations: [],
+      langues: [],
+      metiers: [],
+      niveau: null,
+    };
+  }
 }

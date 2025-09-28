@@ -1,21 +1,17 @@
 // types/candidats.ts
-
 export interface Experience {
+  debut: string | null;
+  fin: string | null;
   poste: string | null;
   entreprise: string | null;
-  periode?: string | null;   // ✅ ajouté
-  debut?: string;
-  fin?: string;
+  description: string;
 }
 
 export interface Formation {
   intitule: string | null;
-  raw?: string; 
-  diplome?: string;
-  ecole?: string | null;
-  localisation?: string;
-  date_debut?: string;
-  date_fin?: string;         // ✅ ajouté
+  ecole: string | null;
+  diplome?: string | null; // Rendre diplome optionnel
+  raw: string;
 }
 
 export interface Langue {
@@ -24,22 +20,20 @@ export interface Langue {
 }
 
 export interface Candidat {
-  id?: number;
+  fichier?: string | null;
   nom: string | null;
   prenom: string | null;
+  profil: string | null;
   email: string | null;
   telephone: string | null;
   adresse: string | null;
-  postes: string [];
-  profil: string | null;
+  linkedin?: string | null;
+  postes: string[];
   entreprise: string | null;
   competences: string[];
   experiences: Experience[];
   formations: Formation[];
   langues: Langue[];
-  linkedin?: string | null;
-  fichier?: string | null;
-  lien?: string | null;
-  metiers: string [];
+  metiers: string[];
   niveau: string | null;
 }
