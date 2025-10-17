@@ -1,6 +1,7 @@
+// services/jobWorkers.ts
 import { supabase } from "../utils/supabase";
 import { fetchToBuffer } from "../utils/fetchToBuffer";
-import { parseCandidateFromBuffer } from "./documentParser";
+import { extractCVData } from "./documentParser";
 
 export async function processJobs() {
   // Cherche un job "pending"
@@ -14,7 +15,9 @@ export async function processJobs() {
   for (const url of job.files) {
     try {
       const { buffer, filename } = await fetchToBuffer(url);
-      const parsed = await parseCandidateFromBuffer(filename, buffer, url);
+      
+      // CORRECTION : bon ordre des paramètres
+      const parsed = await extractCVData(buffer, filename, supabase);
 
       await supabase.from("candidats").insert(parsed as any);
       processed++;
