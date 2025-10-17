@@ -1,7 +1,7 @@
 // pages/api/parse.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createClient } from "@supabase/supabase-js";
-import { extractCVData } from "../../utils/extractCVData";
+import { extractCVData } from "../../services/documentParser";
 import type { Candidat } from "../../types/candidats";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
