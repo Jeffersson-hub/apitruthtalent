@@ -36,10 +36,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       file_path?: string; // e.g. "cvs/xxx.pdf"
     };
 
+    console.log("📥 Requête reçue:", { file_url, file_name, file_path });
+
     // ---------- Mode 1 : un seul fichier via URL signée ----------
     if (file_url && file_name) {
+      console.log("🔗 Téléchargement depuis URL:", file_url);
       const buf = Buffer.from(await (await fetch(file_url)).arrayBuffer());
+      console.log("📄 Fichier téléchargé, taille:", buf.length, "bytes");
+
       const parsed: Candidat = await extractCVData(buf, file_name, supabase);
+       console.log("✅ Données extraites:", {
+        nom: parsed.nom,
+        prenom: parsed.prenom,
+        metiers: parsed.metiers,
+        metiersCount: parsed.metiers.length,
+        competencesCount: parsed.competences.length,
+        experiencesCount: parsed.experiences.length
+      });
 
       const { error: dbErr } = await supabase
         .from("candidats")
@@ -47,6 +60,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (dbErr) throw new Error("DB upsert error: " + dbErr.message);
 
       console.log("📝 Parsed candidat:", parsed);
+      
 
     }
 
@@ -60,10 +74,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const buf = Buffer.from(await data.arrayBuffer());
       const parsed: Candidat = await extractCVData(buf, file_path.split("/").pop() || file_path, supabase);
 
+      // Insertion dans la base
+      console.log("💾 Insertion dans la base de données...");
       const { error: dbErr } = await supabase
+
         .from("candidats")
         .upsert(parsed, { onConflict: "fichier" });
-      if (dbErr) throw new Error("DB upsert error: " + dbErr.message);
+      if (dbErr)
+        throw new Error("DB upsert error: " + dbErr.message);
+      console.error("❌ Erreur base de données:", dbErr);
 
       return res.status(200).json({ message: "OK", candidat: parsed });
     }

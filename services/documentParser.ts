@@ -92,6 +92,7 @@ export async function extractCVData(buffer: Buffer, filename: string, supabase: 
     
     // Extraction des métiers avec système par domaines
     const metiers = await extractMetiersWithDomains(cleanText, supabase);
+
     
     const postes = extractPostesFromExperiences(experiences);
     const entreprise = extractEntreprisePrincipale(experiences);
@@ -138,6 +139,7 @@ export async function extractCVData(buffer: Buffer, filename: string, supabase: 
 // ========================
 
 async function extractMetiersWithDomains(rawText: string, supabase: any): Promise<string[]> {
+   console.log("🔍 Début extraction métiers avec domaines");
   const metiers: Set<string> = new Set();
   
   const cleanedText = normalizeText(rawText);
