@@ -1,7 +1,7 @@
 // pages/api/parse.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { supabase } from '../utils/supabase';
-import { extractCVData } from '../utils/extractCVData';
+import { extractCVData } from './extractCVData_old';
 import { Candidat } from '../types/candidats';
 
 export default async function handler(

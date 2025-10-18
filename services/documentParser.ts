@@ -632,21 +632,62 @@ function extractSection(text: string, startRegex: RegExp, endRegex: RegExp): str
 // GESTION DICTIONNAIRES
 // ========================
 
+// Ajoutez cette fonction dans services/documentParser.ts
+
+}
+Solution rapide : Testez avec cette correction
+Ajoutez cette version corrigée dans services/documentParser.ts :
+
+typescript
+// REMPLACEZ la fonction loadDictionarySafe dans services/documentParser.ts
 async function loadDictionarySafe(supabase: any, path: string): Promise<string[]> {
   try {
+    console.log(`📂 Chargement: ${path}`);
+    
+    // Essai 1: Fichier direct dans bucket 'dictionaries'
+    console.log(`🔍 Essai 1: dictionaries/${path}`);
     const { data, error } = await supabase.storage
+      .from('dictionaries')
+      .download(path);
+
+    if (!error && data) {
+      const text = await data.text();
+      const parsed = JSON.parse(text);
+      console.log(`✅ Trouvé: dictionaries/${path} (${parsed.length} entrées)`);
+      return parsed;
+    }
+
+    // Essai 2: Dans sous-dossier 'dictionaries/'
+    console.log(`🔍 Essai 2: dictionaries/dictionaries/${path}`);
+    const { data: data2, error: error2 } = await supabase.storage
       .from('dictionaries')
       .download(`dictionaries/${path}`);
 
-    if (error || !data) {
-      console.warn(`Dictionnaire ${path} non trouvé, utilisation liste vide`);
-      return [];
+    if (!error2 && data2) {
+      const text = await data2.text();
+      const parsed = JSON.parse(text);
+      console.log(`✅ Trouvé: dictionaries/dictionaries/${path} (${parsed.length} entrées)`);
+      return parsed;
     }
 
-    const text = await data.text();
-    return JSON.parse(text);
+    // Essai 3: Dans bucket 'truthtalent'
+    console.log(`🔍 Essai 3: truthtalent/dictionaries/${path}`);
+    const { data: data3, error: error3 } = await supabase.storage
+      .from('truthtalent')
+      .download(`dictionaries/${path}`);
+
+    if (!error3 && data3) {
+      const text = await data3.text();
+      const parsed = JSON.parse(text);
+      console.log(`✅ Trouvé: truthtalent/dictionaries/${path} (${parsed.length} entrées)`);
+      return parsed;
+    }
+
+    console.warn(`❌ ${path} non trouvé après 3 essais`);
+    return [];
+    
   } catch (error) {
-    console.error(`Erreur chargement dictionnaire ${path}:`, error);
+    console.error(`💥 Erreur: ${path}`, error);
     return [];
   }
 }
