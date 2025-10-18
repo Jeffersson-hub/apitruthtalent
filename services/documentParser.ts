@@ -632,13 +632,6 @@ function extractSection(text: string, startRegex: RegExp, endRegex: RegExp): str
 // GESTION DICTIONNAIRES
 // ========================
 
-// Ajoutez cette fonction dans services/documentParser.ts
-
-}
-Solution rapide : Testez avec cette correction
-Ajoutez cette version corrigée dans services/documentParser.ts :
-
-typescript
 // REMPLACEZ la fonction loadDictionarySafe dans services/documentParser.ts
 async function loadDictionarySafe(supabase: any, path: string): Promise<string[]> {
   try {
