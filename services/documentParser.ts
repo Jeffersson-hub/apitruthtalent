@@ -54,7 +54,7 @@ const DOMAINES_CONFIG: Record<DomaineMetier, { fichier: string; motsCles: string
   }
 };
 
-const NIVEAUX_ORDER = ["CAP", "BEP", "BAC", "BAC+2", "BAC+3", "BAC+5", "Doctorat"];
+const NIVEAUX_ORDER = ["CAP", "BEP", "BAC","Baccalauréat",  "BAC+2", "BAC+3","Licence", "BAC+5","Master", "Doctorat"];
 
 // ========================
 // REGEX
