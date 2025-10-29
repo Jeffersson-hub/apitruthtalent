@@ -91,7 +91,7 @@ export async function extractCVData(buffer: Buffer, filename: string, supabase: 
     const competences = extractCompetences(cleanText);
     
     // Extraction des métiers avec système par domaines
-    const metiers = await extractMetiersWithDomains(cleanText, supabase);
+    const metiers = await extractMetiersAmeliores(cleanText, supabase);
 
     
     const postes = extractPostesFromExperiences(experiences);
@@ -138,27 +138,36 @@ export async function extractCVData(buffer: Buffer, filename: string, supabase: 
 // EXTRACTION MÉTIERS AVEC DOMAINES
 // ========================
 
-async function extractMetiersWithDomains(rawText: string, supabase: any): Promise<string[]> {
-   console.log("🔍 Début extraction métiers avec domaines");
-  const metiers: Set<string> = new Set();
+function calculateSimilarityAmelioree(a: string, b: string): number {
+  const aNorm = normalizeForMatching(a);
+  const bNorm = normalizeForMatching(b);
   
-  const cleanedText = normalizeText(rawText);
-  const dictionnaires = await loadAllDomainDictionaries(supabase);
-  const domainesPertinents = detectDomaines(cleanedText, dictionnaires);
-  
-  console.log(`🎯 Domaines détectés: ${domainesPertinents.map(d => d.domaine).join(', ')}`);
-  
-  for (const domaine of domainesPertinents) {
-    const metiersDomaine = await extractMetiersFromDomaine(cleanedText, domaine, supabase);
-    metiersDomaine.forEach(metier => metiers.add(metier));
+  // Bonus si un string contient l'autre
+  if (aNorm.includes(bNorm) || bNorm.includes(aNorm)) {
+    return 0.9;
   }
   
-  if (metiers.size === 0) {
-    const metiersFallback = await extractMetiersFallback(cleanedText, supabase);
-    metiersFallback.forEach(metier => metiers.add(metier));
-  }
+  const wordsA = aNorm.split(' ').filter(w => w.length > 2);
+  const wordsB = bNorm.split(' ').filter(w => w.length > 2);
   
-  return Array.from(metiers).slice(0, 5);
+  if (wordsA.length === 0 || wordsB.length === 0) return 0;
+  
+  const setA = new Set(wordsA);
+  const setB = new Set(wordsB);
+  
+  const intersection = new Set([...setA].filter(x => setB.has(x)));
+  const union = new Set([...setA, ...setB]);
+  
+  // Score de Jaccard amélioré
+  let score = intersection.size / union.size;
+  
+  // Bonus pour le premier mot identique
+  if (wordsA[0] === wordsB[0]) score += 0.3;
+  
+  // Bonus pour le dernier mot identique  
+  if (wordsA[wordsA.length - 1] === wordsB[wordsB.length - 1]) score += 0.2;
+  
+  return Math.min(score, 1.0);
 }
 
 async function loadAllDomainDictionaries(supabase: any): Promise<DictionnaireMetier[]> {
