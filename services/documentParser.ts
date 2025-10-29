@@ -138,38 +138,6 @@ export async function extractCVData(buffer: Buffer, filename: string, supabase: 
 // EXTRACTION MÉTIERS AVEC DOMAINES
 // ========================
 
-function calculateSimilarityAmelioree(a: string, b: string): number {
-  const aNorm = normalizeForMatching(a);
-  const bNorm = normalizeForMatching(b);
-  
-  // Bonus si un string contient l'autre
-  if (aNorm.includes(bNorm) || bNorm.includes(aNorm)) {
-    return 0.9;
-  }
-  
-  const wordsA = aNorm.split(' ').filter(w => w.length > 2);
-  const wordsB = bNorm.split(' ').filter(w => w.length > 2);
-  
-  if (wordsA.length === 0 || wordsB.length === 0) return 0;
-  
-  const setA = new Set(wordsA);
-  const setB = new Set(wordsB);
-  
-  const intersection = new Set([...setA].filter(x => setB.has(x)));
-  const union = new Set([...setA, ...setB]);
-  
-  // Score de Jaccard amélioré
-  let score = intersection.size / union.size;
-  
-  // Bonus pour le premier mot identique
-  if (wordsA[0] === wordsB[0]) score += 0.3;
-  
-  // Bonus pour le dernier mot identique  
-  if (wordsA[wordsA.length - 1] === wordsB[wordsB.length - 1]) score += 0.2;
-  
-  return Math.min(score, 1.0);
-}
-
 async function loadAllDomainDictionaries(supabase: any): Promise<DictionnaireMetier[]> {
   const dictionnaires: DictionnaireMetier[] = [];
   
@@ -718,3 +686,179 @@ function createCandidatVide(filename: string): Candidat {
     niveau: null
   };
 }
+
+async function extractMetiersAmeliores(text: string, supabase: any): Promise<string[]> {
+  console.log("🔍 Début extraction métiers améliorée");
+  
+  const metiersTrouves = new Set<string>();
+  const cleanedText = normalizeText(text);
+  
+  // Étape 1: Extraction des postes des expériences (PRIORITÉ MAX)
+  const experiences = extractExperiences(cleanedText);
+  console.log(`📊 Expériences trouvées: ${experiences.length}`);
+  
+  for (const exp of experiences) {
+    if (exp.poste) {
+      console.log(`🎯 Analyse poste: "${exp.poste}"`);
+      const metierNormalise = await normaliserMetier(exp.poste, supabase);
+      if (metierNormalise) {
+        metiersTrouves.add(metierNormalise);
+        console.log(`✅ Poste normalisé: "${exp.poste}" -> "${metierNormalise}"`);
+      } else {
+        // Si pas trouvé dans les dictionnaires, on garde le poste original nettoyé
+        const posteClean = cleanMetierItem(exp.poste);
+        if (posteClean) {
+          metiersTrouves.add(posteClean);
+          console.log(`⚠️  Poste conservé (non normalisé): "${posteClean}"`);
+        }
+      }
+    }
+  }
+  
+  // Étape 2: Recherche dans les dictionnaires (en priorité basse)
+  if (metiersTrouves.size === 0) {
+    console.log("🔍 Aucun métier trouvé dans les expériences, recherche dans les dictionnaires...");
+    const dictionnaires = await loadAllDomainDictionaries(supabase);
+    
+    for (const dict of dictionnaires) {
+      for (const metier of dict.metiers) {
+        const regex = new RegExp(`\\b${escapeRegex(metier)}\\b`, 'gi');
+        if (regex.test(cleanedText)) {
+          metiersTrouves.add(metier);
+          console.log(`📚 Métier trouvé via dictionnaire: "${metier}"`);
+          break;
+        }
+      }
+    }
+  }
+  
+  // Étape 3: Extraction du titre principal comme fallback
+  if (metiersTrouves.size === 0) {
+    const titrePrincipal = extraireTitrePrincipal(cleanedText);
+    if (titrePrincipal) {
+      const metierTitre = await normaliserMetier(titrePrincipal, supabase) || cleanMetierItem(titrePrincipal);
+      if (metierTitre) {
+        metiersTrouves.add(metierTitre);
+        console.log(`🏷️  Métier depuis titre: "${metierTitre}"`);
+      }
+    }
+  }
+  
+  const resultat = Array.from(metiersTrouves).slice(0, 3);
+  console.log(`🎉 Métiers finaux: ${JSON.stringify(resultat)}`);
+  return resultat;
+}
+
+async function normaliserMetier(poste: string, supabase: any): Promise<string | null> {
+  if (!poste) return null;
+  
+  const posteClean = cleanMetierItem(poste);
+  if (!posteClean) return null;
+  
+  // Liste de mapping manuel pour les cas courants
+  const mappingManuel: Record<string, string> = {
+    'administrateur systeme': 'Administrateur systèmes',
+    'administrateur systeme network': 'Administrateur systèmes et réseaux',
+    'ingenieur en chef satellite': 'Ingénieur spatial',
+    'ingenieur satellite': 'Ingénieur spatial',
+    'concepteur developpeur applications': 'Développeur fullstack',
+    'chef de projet informatique': 'Chef de projet IT',
+    'charge de communication': 'Chargé de communication',
+    'community manager': 'Community Manager',
+    'vendeur conseiller omnicanal': 'Vendeur',
+    'equipier polyvalent commerce': 'Vendeur',
+    'poissonnier': 'Poissonnier',
+    'serveur': 'Serveur',
+    'runner': 'Serveur',
+    'maquilleuse': 'Maquilleuse',
+    'professeur de violon': 'Professeur de musique'
+  };
+  
+  const posteLower = posteClean.toLowerCase();
+  
+  // Vérifier le mapping manuel d'abord
+  for (const [key, value] of Object.entries(mappingManuel)) {
+    if (posteLower.includes(key)) {
+      console.log(`🗺️  Mapping manuel: "${posteClean}" -> "${value}"`);
+      return value;
+    }
+  }
+  
+  // Ensuite, chercher dans les dictionnaires
+  const allDictionnaires = await loadAllDomainDictionaries(supabase);
+  const tousMetiers = allDictionnaires.flatMap(d => d.metiers);
+  
+  // Recherche exacte
+  for (const metierRef of tousMetiers) {
+    if (normalizeForMatching(posteClean) === normalizeForMatching(metierRef)) {
+      return metierRef;
+    }
+  }
+  
+  // Recherche par similarité
+  let meilleurMetier: string | null = null;
+  let meilleurScore = 0.6;
+  
+  for (const metierRef of tousMetiers) {
+    const score = calculateSimilarityAmelioree(posteClean, metierRef);
+    if (score > meilleurScore) {
+      meilleurScore = score;
+      meilleurMetier = metierRef;
+    }
+  }
+  
+  if (meilleurMetier) {
+    console.log(`🎯 Similarité trouvée: "${posteClean}" -> "${meilleurMetier}" (score: ${meilleurScore.toFixed(2)})`);
+  }
+  
+  return meilleurMetier;
+}
+
+function extraireTitrePrincipal(text: string): string | null {
+  const lines = text.split('\n')
+    .map(l => l.trim())
+    .filter(l => l.length > 5 && l.length < 100)
+    .filter(l => !l.match(emailRegex) && !l.match(phoneRegex));
+  
+  for (let i = 0; i < Math.min(5, lines.length); i++) {
+    const line = lines[i];
+    const words = line.split(/\s+/);
+    
+    if (words.length >= 2 && words.length <= 5 && !isMostlyUpper(line)) {
+      if (!line.match(/^(cv|curriculum|resume|nom|prenom|adresse|coordonnées|téléphone|email)/i)) {
+        console.log(`🏷️  Titre principal détecté: "${line}"`);
+        return line;
+      }
+    }
+  }
+  
+  return null;
+}
+
+function calculateSimilarityAmelioree(a: string, b: string): number {
+  const aNorm = normalizeForMatching(a);
+  const bNorm = normalizeForMatching(b);
+  
+  if (aNorm.includes(bNorm) || bNorm.includes(aNorm)) {
+    return 0.9;
+  }
+  
+  const wordsA = aNorm.split(' ').filter(w => w.length > 2);
+  const wordsB = bNorm.split(' ').filter(w => w.length > 2);
+  
+  if (wordsA.length === 0 || wordsB.length === 0) return 0;
+  
+  const setA = new Set(wordsA);
+  const setB = new Set(wordsB);
+  
+  const intersection = new Set([...setA].filter(x => setB.has(x)));
+  const union = new Set([...setA, ...setB]);
+  
+  let score = intersection.size / union.size;
+  
+  if (wordsA[0] === wordsB[0]) score += 0.3;
+  if (wordsA[wordsA.length - 1] === wordsB[wordsB.length - 1]) score += 0.2;
+  
+  return Math.min(score, 1.0);
+}
+
