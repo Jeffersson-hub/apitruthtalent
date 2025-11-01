@@ -54,7 +54,68 @@ const DOMAINES_CONFIG: Record<DomaineMetier, { fichier: string; motsCles: string
   }
 };
 
-const NIVEAUX_ORDER = ["CAP", "BEP", "BAC","Baccalauréat",  "BAC+2", "BAC+3","Licence", "BAC+5","Master", "Doctorat"];
+// ========================
+// CONFIGURATION AMÉLIORÉE
+// ========================
+
+const NIVEAUX_ORDER = [
+  "CAP", "BEP", "BAC", "Baccalauréat", 
+  "BAC+1", "BAC+2", "BAC+3", "Licence", 
+  "BAC+4", "BAC+5", "Master", "Doctorat"
+];
+
+// Ajoutez aussi cette fonction pour un traitement global amélioré
+async function extractCVDataAmeliore(buffer: Buffer, filename: string, supabase: any): Promise<Candidat> {
+  try {
+    console.log(`🔍 Début extraction CV améliorée: ${filename}`);
+    
+    const rawText = await readText(buffer, filename);
+    const cleanText = normalizeText(rawText);
+
+    // ... (le reste de votre extraction existante)
+
+    // EXTRACTION NIVEAU AMÉLIORÉE
+    const formations = extractFormations(cleanText);
+    const experiences = extractExperiences(cleanText);
+    
+    // Essayer d'abord les formations, puis les expériences
+    let niveau = extractNiveauFromFormations(formations);
+    if (!niveau) {
+      niveau = extractNiveauFromExperiences(experiences);
+    }
+    
+    // Fallback: recherche dans tout le texte
+    if (!niveau) {
+      niveau = mapDiplomeToNiveauAmeliore(null, cleanText);
+    }
+
+    // Construction de l'objet candidat
+    const candidat: Candidat = {
+      // ... (vos autres champs)
+      niveau,
+      nom: null,
+      prenom: null,
+      profil: null,
+      email: null,
+      telephone: null,
+      adresse: null,
+      postes: [],
+      entreprise: null,
+      competences: [],
+      experiences: [],
+      formations: [],
+      langues: [],
+      metiers: []
+    };
+
+    console.log("✅ Extraction terminée avec niveau:", niveau);
+    return candidat;
+
+  } catch (error) {
+    console.error(`❌ Erreur lors de l'extraction de ${filename}:`, error);
+    return createCandidatVide(filename);
+  }
+}
 
 // ========================
 // REGEX
@@ -510,19 +571,110 @@ function extractPostesFromExperiences(experiences: Experience[]): string[] {
 }
 
 // ========================
-// EXTRACTION NIVEAU
+// EXTRACTION NIVEAU AMÉLIORÉE
 // ========================
 
 function extractNiveauFromFormations(formations: Formation[]): string | null {
   const niveaux: string[] = [];
 
   formations.forEach(formation => {
-    const niveau = mapDiplomeToNiveau(formation.intitule);
+    const niveau = mapDiplomeToNiveauAmeliore(formation.intitule, formation.raw);
     if (niveau) niveaux.push(niveau);
   });
 
+  // Ajouter la recherche dans l'ensemble du texte des formations
+  const textFormations = formations.map(f => `${f.intitule} ${f.raw}`).join(' ');
+  const niveauTexte = extractNiveauFromText(textFormations);
+  if (niveauTexte) niveaux.push(niveauTexte);
+
   if (niveaux.length === 0) return null;
+  
   return pickHighestLevel(niveaux);
+}
+
+function mapDiplomeToNiveauAmeliore(diplome: string | null, rawText: string = ''): string | null {
+  if (!diplome && !rawText) return null;
+  
+  const texteComplet = `${diplome || ''} ${rawText}`.toLowerCase();
+  
+  // Détection des années d'études
+  if (/(1ère|première)\s*(année|year).*bts|bts.*(1ère|première)/i.test(texteComplet)) return "BAC+1";
+  if (/(2ème|seconde|2e)\s*(année|year).*bts|bts.*(2ème|seconde)/i.test(texteComplet)) return "BAC+2";
+  if (/1ère\s*année|première\s*année|L1|M1/i.test(texteComplet)) return "BAC+1";
+  if (/2ème\s*année|seconde\s*année|L2|M2/i.test(texteComplet)) return "BAC+2";
+  if (/3ème\s*année|troisième\s*année|L3|M3/i.test(texteComplet)) return "BAC+3";
+
+  // Détection des diplômes avec patterns améliorés
+  if (/\b(cap|certificat d'aptitude professionnelle)\b/i.test(texteComplet)) return "CAP";
+  if (/\b(bep|brevet d'études professionnelles)\b/i.test(texteComplet)) return "BEP";
+  
+  // Bac avec guillemets ou parenthèses
+  if (/(\bbac\b|baccalauréat|["'«»]bac["'»])/i.test(texteComplet)) return "BAC";
+  
+  // BAC+2 avec différentes notations
+  if (/(bac\+2|\bbts\b|dut|deug|brevet de technicien supérieur|diplôme universitaire de technologie)/i.test(texteComplet)) return "BAC+2";
+  
+  // BAC+3
+  if (/(bac\+3|\blicence\b|bachelor|L3)/i.test(texteComplet)) return "BAC+3";
+  
+  // BAC+5
+  if (/(bac\+5|\bmaster\b|ingénieur|master|mastère|M2)/i.test(texteComplet)) return "BAC+5";
+  
+  // Doctorat
+  if (/(doctorat|phd|bac\+8)/i.test(texteComplet)) return "Doctorat";
+
+  return null;
+}
+
+function extractNiveauFromText(text: string): string | null {
+  const textLower = text.toLowerCase();
+  
+  // Recherche de niveaux explicites entre guillemets ou parenthèses
+  const niveauExplicite = textLower.match(/["'«»](cap|bep|bac|bac\+?[0-9])["'»]/i);
+  if (niveauExplicite) {
+    const niveau = niveauExplicite[1].toUpperCase();
+    if (niveau === 'BAC') return "BAC";
+    if (niveau === 'CAP') return "CAP";
+    if (niveau === 'BEP') return "BEP";
+    if (niveau.includes('+')) return niveau.toUpperCase();
+  }
+  
+  // Recherche dans des contextes spécifiques
+  if (/\b(cap|bep|bac)\b.*["'«»].*["'»]/i.test(textLower)) {
+    if (textLower.includes('cap')) return "CAP";
+    if (textLower.includes('bep')) return "BEP";
+    if (textLower.includes('bac') && !textLower.includes('bac+')) return "BAC";
+  }
+  
+  return null;
+}
+
+// Fonction utilitaire pour extraire aussi des expériences
+function extractNiveauFromExperiences(experiences: Experience[]): string | null {
+  for (const exp of experiences) {
+    const niveau = mapDiplomeToNiveauAmeliore(exp.poste, exp.description);
+    if (niveau) return niveau;
+  }
+  return null;
+}
+
+// Version améliorée de pickHighestLevel
+function pickHighestLevel(niveaux: string[]): string | null {
+  if (niveaux.length === 0) return null;
+  
+  let highest = niveaux[0];
+  for (const niveau of niveaux) {
+    const currentIndex = NIVEAUX_ORDER.indexOf(niveau);
+    const highestIndex = NIVEAUX_ORDER.indexOf(highest);
+    
+    // Gérer les cas où le niveau n'est pas dans la liste
+    if (currentIndex === -1) continue;
+    if (highestIndex === -1 || currentIndex > highestIndex) {
+      highest = niveau;
+    }
+  }
+  
+  return highest;
 }
 
 function mapDiplomeToNiveau(diplome: string | null): string | null {
@@ -538,17 +690,6 @@ function mapDiplomeToNiveau(diplome: string | null): string | null {
   if (/doctorat|phd|bac\+8/i.test(d)) return "Doctorat";
 
   return null;
-}
-
-function pickHighestLevel(niveaux: string[]): string | null {
-  if (niveaux.length === 0) return null;
-  let highest = niveaux[0];
-  for (const niveau of niveaux) {
-    const currentIndex = NIVEAUX_ORDER.indexOf(niveau);
-    const highestIndex = NIVEAUX_ORDER.indexOf(highest);
-    if (currentIndex > highestIndex) highest = niveau;
-  }
-  return highest;
 }
 
 // ========================
