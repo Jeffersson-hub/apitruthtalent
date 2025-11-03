@@ -20,14 +20,14 @@ export interface Langue {
 }
 
 export interface Candidat {
-  fichier?: string | null;
+  fichier: string | null;
   nom: string | null;
   prenom: string | null;
   profil: string | null;
   email: string | null;
   telephone: string | null;
   adresse: string | null;
-  linkedin?: string | null;
+  linkedin: string | null;
   postes: string[];
   entreprise: string | null;
   competences: string[];

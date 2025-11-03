@@ -1,10 +1,10 @@
-// services/documentParser.ts
+// services/documentParser.ts - VERSION CORRIGÉE
 import { Candidat, Experience, Formation, Langue } from "../types/candidats";
 import mammoth from "mammoth";
 import pdfParse from "pdf-parse";
 
 // ========================
-// TYPES
+// TYPES CORRIGÉS
 // ========================
 interface NameResult {
   nom: string | null;
@@ -25,7 +25,7 @@ interface DictionnaireMetier {
 }
 
 // ========================
-// CONFIGURATION
+// CONFIGURATION CORRIGÉE
 // ========================
 const DOMAINES_CONFIG: Record<DomaineMetier, { fichier: string; motsCles: string[] }> = {
   informatique: {
@@ -61,6 +61,48 @@ const NIVEAUX_ORDER = [
 ];
 
 // ========================
+// CONFIGURATION AMÉLIORÉE DES MÉTIERS (NOUVELLE)
+// ========================
+const METIERS_REFERENCE: Record<string, string[]> = {
+  informatique: [
+    'Développeur Fullstack', 'Développeur Frontend', 'Développeur Backend', 
+    'Ingénieur DevOps', 'Administrateur Systèmes', 'Architecte Cloud',
+    'Data Scientist', 'Data Analyst', 'Ingénieur Machine Learning',
+    'Administrateur Base de Données', 'DevOps Engineer', 'Cloud Engineer',
+    'Ingénieur Réseaux', 'Cybersécurité', 'Product Owner', 'Scrum Master',
+    'Chef de Projet IT', 'Technical Lead', 'CTO', 'Software Engineer'
+  ],
+  industrie: [
+    'Technicien Industriel', 'Ingénieur Process', 'Chef de Chantier',
+    'Conducteur de Travaux', 'Mécanicien Industriel', 'Électricien Industriel',
+    'Automaticien', 'Responsable Production', 'Opérateur de Production'
+  ],
+  commerce: [
+    'Commercial', 'Business Developer', 'Account Manager', 'Chargé de Clientèle',
+    'Responsable Commercial', 'Directeur Commercial', 'Vendeur', 'Conseiller Commercial'
+  ],
+  marketing: [
+    'Marketing Digital', 'Community Manager', 'Content Manager', 'SEO Manager',
+    'Growth Hacker', 'Responsable Communication', 'Chargé de Communication'
+  ],
+  design: [
+    'UX Designer', 'UI Designer', 'Graphiste', 'Web Designer', 'Directeur Artistique'
+  ]
+};
+
+// Mapping des compétences vers les métiers
+const COMPETENCE_TO_METIER: Record<string, string[]> = {
+  'React': ['Développeur Frontend', 'Développeur Fullstack'],
+  'Node.js': ['Développeur Backend', 'Développeur Fullstack'],
+  'Python': ['Data Scientist', 'Développeur Backend'],
+  'AWS': ['Ingénieur DevOps', 'Architecte Cloud'],
+  'Docker': ['Ingénieur DevOps', 'DevOps Engineer'],
+  'MySQL': ['Administrateur Base de Données', 'Développeur Backend'],
+  'Photoshop': ['Graphiste', 'Web Designer'],
+  'SEO': ['Marketing Digital', 'SEO Manager']
+};
+
+// ========================
 // REGEX
 // ========================
 const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/gi;
@@ -68,9 +110,8 @@ const phoneRegex = /(\+33|0)[1-9](\d{2}){4}/g;
 const linkedinRegex = /https?:\/\/(www\.)?linkedin\.com\/[^\s]+/gi;
 
 // ========================
-// FONCTIONS PRINCIPALES AMÉLIORÉES
+// FONCTION PRINCIPALE CORRIGÉE
 // ========================
-
 export async function extractCVData(buffer: Buffer, filename: string, supabase: any): Promise<Candidat> {
   try {
     console.log(`🔍 Début extraction CV améliorée: ${filename}`);
@@ -96,8 +137,8 @@ export async function extractCVData(buffer: Buffer, filename: string, supabase: 
     
     console.log(`📊 ${experiences.length} expériences, ${formations.length} formations, ${competences.length} compétences`);
 
-    // Extraction des métiers
-    const metiers = await extractMetiersAmeliores(cleanText, supabase);
+    // EXTRACTION DES MÉTIERS AMÉLIORÉE
+    const metiers = await extractMetiersIntelligents(cleanText, experiences, competences, supabase);
     const postes = extractPostesFromExperiences(experiences);
     const entreprise = extractEntreprisePrincipale(experiences);
     const niveau = extractNiveauFromFormationsAmeliore(formations);
@@ -140,7 +181,153 @@ export async function extractCVData(buffer: Buffer, filename: string, supabase: 
 }
 
 // ========================
-// EXTRACTION MÉTIERS AVEC DOMAINES
+// EXTRACTION INTELLIGENTE DES MÉTIERS - CORRIGÉE
+// ========================
+async function extractMetiersIntelligents(
+  text: string, 
+  experiences: Experience[], 
+  competences: string[], 
+  supabase: any
+): Promise<string[]> {
+  console.log("🧠 Extraction intelligente des métiers...");
+  
+  const metiersTrouves = new Set<string>();
+
+  // 1. PRIORITÉ MAX: Extraction des postes des expériences
+  for (const exp of experiences) {
+    if (exp.poste) {
+      const metierFromPoste = await normaliserMetierIntelligent(exp.poste, supabase);
+      if (metierFromPoste) {
+        metiersTrouves.add(metierFromPoste);
+        console.log(`🎯 Métier depuis poste: "${exp.poste}" -> "${metierFromPoste}"`);
+      }
+    }
+  }
+
+  // 2. Détection par compétences
+  for (const competence of competences) {
+    const metiersFromCompetence = COMPETENCE_TO_METIER[competence];
+    if (metiersFromCompetence) {
+      metiersFromCompetence.forEach(metier => metiersTrouves.add(metier));
+      console.log(`🛠️ Métier depuis compétence: "${competence}" -> ${metiersFromCompetence.join(', ')}`);
+    }
+  }
+
+  // 3. Recherche dans le texte avec patterns améliorés
+  const metiersFromText = extractMetiersFromText(text);
+  metiersFromText.forEach(metier => metiersTrouves.add(metier));
+
+  // 4. Fallback: Titre principal du CV
+  if (metiersTrouves.size === 0) {
+    const titrePrincipal = extraireTitrePrincipal(text);
+    if (titrePrincipal) {
+      const metierTitre = await normaliserMetierIntelligent(titrePrincipal, supabase);
+      if (metierTitre) {
+        metiersTrouves.add(metierTitre);
+      }
+    }
+  }
+
+  const resultat = Array.from(metiersTrouves).slice(0, 3);
+  console.log(`🎉 Métiers finaux: ${JSON.stringify(resultat)}`);
+  return resultat;
+}
+
+// ========================
+// NORMALISATION INTELLIGENTE DES MÉTIERS - CORRIGÉE
+// ========================
+async function normaliserMetierIntelligent(poste: string, supabase: any): Promise<string | null> {
+  if (!poste) return null;
+  
+  const posteClean = cleanMetierItem(poste);
+  if (!posteClean) return null;
+
+  // 1. Mapping manuel pour les cas courants
+  const mappingManuel: Record<string, string> = {
+    // Informatique
+    'dev fullstack': 'Développeur Fullstack',
+    'dev front': 'Développeur Frontend', 
+    'dev back': 'Développeur Backend',
+    'developpeur web': 'Développeur Fullstack',
+    'software developer': 'Software Engineer',
+    'sysadmin': 'Administrateur Systèmes',
+    'admin sys': 'Administrateur Systèmes',
+    'admin réseau': 'Administrateur Réseaux',
+    'data engineer': 'Data Engineer',
+    
+    // Industrie
+    'tech industriel': 'Technicien Industriel',
+    'conducteur travaux': 'Conducteur de Travaux',
+    'chef de projet': 'Chef de Projet',
+    
+    // Commerce
+    'business dev': 'Business Developer',
+    'sales': 'Commercial',
+    'account exec': 'Account Manager'
+  };
+
+  const posteLower = posteClean.toLowerCase();
+  
+  // Vérifier le mapping manuel
+  for (const [key, value] of Object.entries(mappingManuel)) {
+    if (posteLower.includes(key)) {
+      console.log(`🗺️ Mapping manuel: "${posteClean}" -> "${value}"`);
+      return value;
+    }
+  }
+
+  // 2. Recherche dans les métiers de référence
+  for (const [categorie, metiers] of Object.entries(METIERS_REFERENCE)) {
+    for (const metier of metiers) {
+      const similarity = calculateSimilarityAmelioree(posteClean, metier);
+      if (similarity > 0.7) {
+        console.log(`🎯 Similarité trouvée: "${posteClean}" -> "${metier}" (score: ${similarity.toFixed(2)})`);
+        return metier;
+      }
+    }
+  }
+
+  // 3. Si pas trouvé, garder le poste nettoyé
+  console.log(`⚠️ Métier conservé (non normalisé): "${posteClean}"`);
+  return posteClean;
+}
+
+// ========================
+// EXTRACTION DES MÉTIERS DEPUIS LE TEXTE - CORRIGÉE
+// ========================
+function extractMetiersFromText(text: string): string[] {
+  const metiersTrouves = new Set<string>();
+  const textLower = text.toLowerCase();
+
+  // Recherche directe dans le texte
+  for (const [categorie, metiers] of Object.entries(METIERS_REFERENCE)) {
+    for (const metier of metiers) {
+      const metierLower = metier.toLowerCase();
+      
+      // Recherche exacte
+      if (textLower.includes(metierLower)) {
+        metiersTrouves.add(metier);
+        continue;
+      }
+      
+      // Recherche par mots clés
+      const motsMetier = metierLower.split(' ');
+      if (motsMetier.length > 1) {
+        const tousMotsPresents = motsMetier.every(mot => 
+          textLower.includes(mot) && mot.length > 3
+        );
+        if (tousMotsPresents) {
+          metiersTrouves.add(metier);
+        }
+      }
+    }
+  }
+
+  return Array.from(metiersTrouves);
+}
+
+// ========================
+// FONCTIONS EXISTANTES CORRIGÉES
 // ========================
 
 async function loadAllDomainDictionaries(supabase: any): Promise<DictionnaireMetier[]> {
@@ -164,11 +351,13 @@ async function loadAllDomainDictionaries(supabase: any): Promise<DictionnaireMet
 function detectDomaines(text: string, dictionnaires: DictionnaireMetier[]): DictionnaireMetier[] {
   const scores: Map<DomaineMetier, number> = new Map();
   
+  // Initialiser les scores
   Object.keys(DOMAINES_CONFIG).forEach(domaine => {
     scores.set(domaine as DomaineMetier, 0);
   });
   
-  for (const [domaine, config] of Object.entries(DOMAINES_CONFIG)) {
+  for (const [domaineKey, config] of Object.entries(DOMAINES_CONFIG)) {
+    const domaine = domaineKey as DomaineMetier;
     let score = 0;
     
     config.motsCles.forEach(motCle => {
@@ -185,141 +374,22 @@ function detectDomaines(text: string, dictionnaires: DictionnaireMetier[]): Dict
       });
     }
     
-    scores.set(domaine as DomaineMetier, score);
+    scores.set(domaine, score);
   }
   
   return Array.from(scores.entries())
     .filter(([_, score]) => score > 0)
     .sort((a, b) => b[1] - a[1])
-    .map(([domaine]) => dictionnaires.find(d => d.domaine === domaine)!)
+    .map(([domaine]) => {
+      const found = dictionnaires.find(d => d.domaine === domaine);
+      return found!;
+    })
+    .filter(Boolean)
     .slice(0, 3);
 }
 
-async function extractMetiersFromDomaine(text: string, domaine: DictionnaireMetier, supabase: any): Promise<string[]> {
-  const metiersTrouves: string[] = [];
-  
-  // Recherche exacte dans le dictionnaire
-  for (const metier of domaine.metiers) {
-    const regex = new RegExp(`\\b${escapeRegex(metier)}\\b`, 'gi');
-    if (regex.test(text)) {
-      metiersTrouves.push(metier);
-    }
-  }
-  
-  // Extraction des postes des expériences
-  const experiences = extractExperiencesAmeliorees(text);
-  for (const exp of experiences) {
-    if (exp.poste) {
-      const metierNormalise = await findMetierInDictionaries(exp.poste, [domaine]);
-      if (metierNormalise && !metiersTrouves.includes(metierNormalise)) {
-        metiersTrouves.push(metierNormalise);
-      }
-    }
-  }
-  
-  return metiersTrouves.slice(0, 3);
-}
-
-async function extractMetiersFallback(text: string, supabase: any): Promise<string[]> {
-  const metiers: Set<string> = new Set();
-  const allDictionnaires = await loadAllDomainDictionaries(supabase);
-  const allMetiers = allDictionnaires.flatMap(d => d.metiers);
-  
-  // Recherche directe
-  for (const metier of allMetiers) {
-    const regex = new RegExp(`\\b${escapeRegex(metier)}\\b`, 'gi');
-    if (regex.test(text)) metiers.add(metier);
-  }
-  
-  // Extraction des expériences
-  const experiences = extractExperiencesAmeliorees(text);
-  for (const exp of experiences) {
-    if (exp.poste) {
-      const cleanPoste = cleanMetierItem(exp.poste);
-      if (cleanPoste) {
-        const similarMetier = findSimilarMetier(cleanPoste, allMetiers);
-        if (similarMetier) {
-          metiers.add(similarMetier);
-        } else {
-          metiers.add(cleanPoste);
-        }
-      }
-    }
-  }
-  
-  return Array.from(metiers).slice(0, 3);
-}
-
 // ========================
-// FONCTIONS UTILITAIRES MÉTIERS
-// ========================
-
-async function findMetierInDictionaries(terme: string, dictionnaires: DictionnaireMetier[]): Promise<string | null> {
-  const termeNormalise = normalizeForMatching(terme);
-  const allMetiers = dictionnaires.flatMap(d => d.metiers);
-  
-  for (const metier of allMetiers) {
-    if (normalizeForMatching(metier) === termeNormalise) return metier;
-  }
-  
-  for (const metier of allMetiers) {
-    const similarity = calculateSimilarity(termeNormalise, normalizeForMatching(metier));
-    if (similarity > 0.8) return metier;
-  }
-  
-  return null;
-}
-
-function findSimilarMetier(terme: string, metiersList: string[]): string | null {
-  const termeNormalise = normalizeForMatching(terme);
-  
-  for (const metier of metiersList) {
-    const metierNormalise = normalizeForMatching(metier);
-    const similarity = calculateSimilarity(termeNormalise, metierNormalise);
-    if (similarity > 0.7) return metier;
-  }
-  
-  return null;
-}
-
-function normalizeForMatching(text: string): string {
-  return text
-    .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function calculateSimilarity(a: string, b: string): number {
-  const wordsA = a.split(' ');
-  const wordsB = b.split(' ');
-  const commonWords = wordsA.filter(word => wordsB.includes(word));
-  return commonWords.length / Math.max(wordsA.length, wordsB.length);
-}
-
-function cleanMetierItem(item: string): string | null {
-  let clean = item
-    .replace(/\([^)]*\)/g, '')
-    .replace(/\d{4}/g, '')
-    .replace(/(cdi|cdd|stage|alternance|apprentissage|contrat|temps|plein|partiel)/gi, '')
-    .replace(/[^a-zA-ZÀ-ÿ0-9\s\-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  
-  if (clean.length < 2 || clean.length > 50) return null;
-  if (clean.split(' ').length > 4) return null;
-  if (/^(19|20)\d{2}$/.test(clean)) return null;
-  
-  return clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase();
-}
-
-function escapeRegex(string: string): string {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-// ========================
-// FONCTIONS D'EXTRACTION DE BASE
+// FONCTIONS UTILITAIRES CORRIGÉES
 // ========================
 
 function extractEmail(text: string): string | null {
@@ -348,62 +418,161 @@ function extractEntreprisePrincipale(experiences: Experience[]): string | null {
   return experiences[0].entreprise || null;
 }
 
-// ========================
-// EXTRACTION DES SECTIONS AMÉLIORÉES
-// ========================
+function extractPostesFromExperiences(experiences: Experience[]): string[] {
+  return experiences
+    .map(exp => exp.poste)
+    .filter((poste): poste is string => !!poste)
+    .slice(0, 5);
+}
 
+function extractLanguesFromText(text: string): Langue[] {
+  const langues: Langue[] = [];
+  
+  if (text.match(/anglais.*b1|b1.*anglais/i)) {
+    langues.push({ langue: 'Anglais', niveau: 'B1' });
+  }
+  
+  if (text.match(/fran[cç]ais/i)) {
+    langues.push({ langue: 'Français', niveau: 'Natif' });
+  }
+  
+  return langues;
+}
+
+function extractProfilFromText(text: string): string | null {
+  const profils = [
+    'Technicien Industriel',
+    'Ingénieur Informatique', 
+    'Ingénieur DevOps',
+    'Ingénieur SysOps',
+    'Administrateur systèmes',
+    'Chef de projet'
+  ];
+  
+  for (const profil of profils) {
+    if (text.includes(profil)) {
+      return profil;
+    }
+  }
+  
+  return null;
+}
+
+// ========================
+// EXTRACTION DES EXPÉRIENCES - CORRIGÉE
+// ========================
 function extractExperiencesAmeliorees(text: string): Experience[] {
   const experiences: Experience[] = [];
   
   // Nettoyer le texte
   const cleanText = text.replace(/===== Page \d+ =====/g, '');
   
-  // Regex améliorée pour capturer différents formats de dates
-  const expRegex = /(\b(19|20)\d{2}\b)(?:\s*(?:-|–|à)\s*(\b(19|20)\d{2}\b|\bprésent\b|\baujourd['']hui\b|\bactuel\b))?([^•]*?)(?=(?:\b(19|20)\d{2}\b|\bdomaine\b|\bformations\b|\n\s*\n))/gis;
-  
-  const matches = Array.from(cleanText.matchAll(expRegex));
-  
-  for (const match of matches) {
-    const debut = match[1] || null;
-    const fin = match[3] || null;
-    const description = (match[5] || '').trim();
+  // Regex améliorée pour différents formats de dates
+  const patterns = [
+    // Format: 2020 - 2022 Poste chez Entreprise
+    /(\b(19|20)\d{2}\b)\s*(?:-|–|à)\s*(\b(19|20)\d{2}\b|\bprésent\b|\baujourd['']hui\b|\bactuel\b)?\s*([^•\n]{10,200})/gi,
     
-    // Extraction du poste et entreprise
-    let poste = null;
-    let entreprise = null;
+    // Format: Poste (2020-2022) - Entreprise
+    /([A-Z][^•\n]{10,100}?)\s*\(?\s*(\b(19|20)\d{2}\b)\s*(?:-|–|à)\s*(\b(19|20)\d{2}\b|\bprésent\b)\)?/gi,
     
-    // Chercher le poste (première phrase ou avant un séparateur)
-    const posteMatch = description.match(/^([^•\n\-–—]+?)(?:\s*[-–—]\s*|\s*chez\s*|\s*à\s*|\s*\(|$)/);
-    if (posteMatch) {
-      poste = posteMatch[1].trim();
-    }
+    // Format: Entreprise | 2020-2022 | Poste
+    /([A-Z][A-Za-z0-9&\-\s]{2,})\s*[\|\-]\s*(\b(19|20)\d{2}\b)\s*(?:-|–)\s*(\b(19|20)\d{2}\b|\bprésent\b)\s*[\|\-]\s*([^•\n]{10,100})/gi
+  ];
+
+  for (const pattern of patterns) {
+    const matches = Array.from(cleanText.matchAll(pattern));
     
-    // Chercher l'entreprise
-    const entrepriseMatch = description.match(/(?:chez|à|@)\s*([A-Z][A-Za-z0-9&\-\s]{2,})/i);
-    if (entrepriseMatch) {
-      entreprise = entrepriseMatch[1].trim();
-    } else {
-      // Sinon chercher entre parenthèses
-      const entrepriseParens = description.match(/\(([^)]+)\)/);
-      if (entrepriseParens && !entrepriseParens[1].match(/(CDI|CDD|stage|alternance)/i)) {
-        entreprise = entrepriseParens[1].trim();
+    for (const match of matches) {
+      let debut, fin, description, poste, entreprise;
+
+      if (pattern === patterns[0]) {
+        // Format 1: 2020 - 2022 Poste chez Entreprise
+        debut = match[1];
+        fin = match[3];
+        description = match[5];
+        poste = extractPosteFromDescription(description);
+        entreprise = extractEntrepriseFromDescription(description);
+      } else if (pattern === patterns[1]) {
+        // Format 2: Poste (2020-2022) - Entreprise
+        poste = match[1];
+        debut = match[2];
+        fin = match[4];
+        description = match[0];
+        entreprise = extractEntrepriseFromDescription(description);
+      } else {
+        // Format 3: Entreprise | 2020-2022 | Poste
+        entreprise = match[1];
+        debut = match[2];
+        fin = match[4];
+        poste = match[5];
+        description = match[0];
+      }
+
+      if (poste || entreprise) {
+        experiences.push({
+          debut,
+          fin,
+          poste: poste || 'Poste non spécifié',
+          entreprise,
+          description: (description || '').slice(0, 500)
+        });
       }
     }
-    
-    if (poste || entreprise) {
-      experiences.push({
-        debut,
-        fin,
-        poste,
-        entreprise,
-        description: description.slice(0, 1000)
-      });
-    }
   }
-  
-  return experiences.slice(0, 15);
+
+  // Déduplication
+  return experiences
+    .filter((exp, index, self) => 
+      index === self.findIndex(e => 
+        e.poste === exp.poste && e.entreprise === exp.entreprise
+      )
+    )
+    .slice(0, 10);
 }
 
+function extractPosteFromDescription(description: string): string | null {
+  const patterns = [
+    /^([^•\n\-–—@\(\)]{5,50}?)(?:\s*[-–—]\s*|\s*chez\s*|\s*à\s*|\s*\(|$)/,
+    /([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})(?:\s+chez|\s+à|\s*-|\s*–|\s*—)/,
+    /(?:Poste|Rôle|Fonction)\s*:\s*([^\.\n]{5,50})/
+  ];
+
+  for (const pattern of patterns) {
+    const match = description.match(pattern);
+    if (match) {
+      const poste = match[1].trim();
+      if (poste.length > 3 && !poste.match(/^\d/)) {
+        return poste;
+      }
+    }
+  }
+
+  return null;
+}
+
+function extractEntrepriseFromDescription(description: string): string | null {
+  const patterns = [
+    /(?:chez|à|@)\s*([A-Z][A-Za-z0-9&\-\s]{2,})/i,
+    /([A-Z][A-Za-z0-9&\-\s]{2,})\s*(?:\||-|–|—)/,
+    /Entreprise\s*:\s*([^\.\n]{3,50})/
+  ];
+
+  for (const pattern of patterns) {
+    const match = description.match(pattern);
+    if (match) {
+      const entreprise = match[1].trim();
+      if (entreprise.length > 2) {
+        return entreprise;
+      }
+    }
+  }
+
+  return null;
+}
+
+// ========================
+// EXTRACTION FORMATIONS - CORRIGÉE
+// ========================
 function extractFormationsAmeliorees(text: string): Formation[] {
   const formations: Formation[] = [];
   const cleanText = text.replace(/===== Page \d+ =====/g, '');
@@ -455,6 +624,9 @@ function extractDiplomeFromFormation(line: string): string {
   return line.split('–')[0]?.trim() || line;
 }
 
+// ========================
+// EXTRACTION COMPÉTENCES - CORRIGÉE
+// ========================
 function extractCompetencesAmeliorees(text: string): string[] {
   const competences: Set<string> = new Set();
   const cleanText = text.replace(/===== Page \d+ =====/g, '');
@@ -500,17 +672,9 @@ function extractCompetencesAmeliorees(text: string): string[] {
   return Array.from(competences).slice(0, 20);
 }
 
-function extractPostesFromExperiences(experiences: Experience[]): string[] {
-  return experiences
-    .map(exp => exp.poste)
-    .filter((poste): poste is string => !!poste)
-    .slice(0, 5);
-}
-
 // ========================
-// EXTRACTION NIVEAU AMÉLIORÉE
+// EXTRACTION NIVEAU - CORRIGÉE
 // ========================
-
 function extractNiveauFromFormationsAmeliore(formations: Formation[]): string | null {
   const niveaux: string[] = [];
 
@@ -605,9 +769,8 @@ function pickHighestLevel(niveaux: string[]): string | null {
 }
 
 // ========================
-// EXTRACTION NOM/PRÉNOM AMÉLIORÉE
+// EXTRACTION NOM/PRÉNOM - CORRIGÉE
 // ========================
-
 function guessNameAmeliore(raw: string, filename: string): { nom: string | null; prenom: string | null } {
   const lines = raw.split('\n')
     .map(l => l.trim())
@@ -686,44 +849,7 @@ function isMostlyUpper(s: string): boolean {
 }
 
 // ========================
-// FONCTIONS UTILITAIRES SUPPLÉMENTAIRES
-// ========================
-
-function extractLanguesFromText(text: string): Langue[] {
-  const langues: Langue[] = [];
-  
-  if (text.match(/anglais.*b1|b1.*anglais/i)) {
-    langues.push({ langue: 'Anglais', niveau: 'B1' });
-  }
-  
-  if (text.match(/fran[cç]ais/i)) {
-    langues.push({ langue: 'Français', niveau: 'Natif' });
-  }
-  
-  return langues;
-}
-
-function extractProfilFromText(text: string): string | null {
-  const profils = [
-    'Technicien industriel',
-    'Ingénieur informatique', 
-    'Ingénieur DevOps',
-    'Ingénieur SysOps',
-    'Administrateur systèmes',
-    'Chef de projet'
-  ];
-  
-  for (const profil of profils) {
-    if (text.includes(profil)) {
-      return profil;
-    }
-  }
-  
-  return null;
-}
-
-// ========================
-// LECTURE ET NETTOYAGE
+// FONCTIONS UTILITAIRES - CORRIGÉES
 // ========================
 
 async function readText(buffer: Buffer, filename: string): Promise<string> {
@@ -775,10 +901,6 @@ function extractSection(text: string, startRegex: RegExp, endRegex: RegExp): str
 
   return remainingText.trim();
 }
-
-// ========================
-// GESTION DICTIONNAIRES
-// ========================
 
 async function loadDictionarySafe(supabase: any, path: string): Promise<string[]> {
   try {
@@ -832,10 +954,6 @@ async function loadDictionarySafe(supabase: any, path: string): Promise<string[]
   }
 }
 
-// ========================
-// FONCTION UTILITAIRE
-// ========================
-
 function createCandidatVide(filename: string): Candidat {
   return {
     fichier: filename,
@@ -855,139 +973,6 @@ function createCandidatVide(filename: string): Candidat {
     entreprise: null,
     niveau: null
   };
-}
-
-async function extractMetiersAmeliores(text: string, supabase: any): Promise<string[]> {
-  console.log("🔍 Début extraction métiers améliorée");
-  
-  const metiersTrouves = new Set<string>();
-  const cleanedText = normalizeTextAmeliore(text);
-  
-  // Étape 1: Extraction des postes des expériences (PRIORITÉ MAX)
-  const experiences = extractExperiencesAmeliorees(cleanedText);
-  console.log(`📊 Expériences trouvées: ${experiences.length}`);
-  
-  for (const exp of experiences) {
-    if (exp.poste) {
-      console.log(`🎯 Analyse poste: "${exp.poste}"`);
-      const metierNormalise = await normaliserMetier(exp.poste, supabase);
-      if (metierNormalise) {
-        metiersTrouves.add(metierNormalise);
-        console.log(`✅ Poste normalisé: "${exp.poste}" -> "${metierNormalise}"`);
-      } else {
-        // Si pas trouvé dans les dictionnaires, on garde le poste original nettoyé
-        const posteClean = cleanMetierItem(exp.poste);
-        if (posteClean) {
-          metiersTrouves.add(posteClean);
-          console.log(`⚠️  Poste conservé (non normalisé): "${posteClean}"`);
-        }
-      }
-    }
-  }
-  
-  // Étape 2: Recherche dans les dictionnaires (en priorité basse)
-  if (metiersTrouves.size === 0) {
-    console.log("🔍 Aucun métier trouvé dans les expériences, recherche dans les dictionnaires...");
-    const dictionnaires = await loadAllDomainDictionaries(supabase);
-    
-    for (const dict of dictionnaires) {
-      for (const metier of dict.metiers) {
-        const regex = new RegExp(`\\b${escapeRegex(metier)}\\b`, 'gi');
-        if (regex.test(cleanedText)) {
-          metiersTrouves.add(metier);
-          console.log(`📚 Métier trouvé via dictionnaire: "${metier}"`);
-          break;
-        }
-      }
-    }
-  }
-  
-  // Étape 3: Extraction du titre principal comme fallback
-  if (metiersTrouves.size === 0) {
-    const titrePrincipal = extraireTitrePrincipal(cleanedText);
-    if (titrePrincipal) {
-      const metierTitre = await normaliserMetier(titrePrincipal, supabase) || cleanMetierItem(titrePrincipal);
-      if (metierTitre) {
-        metiersTrouves.add(metierTitre);
-        console.log(`🏷️  Métier depuis titre: "${metierTitre}"`);
-      }
-    }
-  }
-  
-  const resultat = Array.from(metiersTrouves).slice(0, 3);
-  console.log(`🎉 Métiers finaux: ${JSON.stringify(resultat)}`);
-  return resultat;
-}
-
-async function normaliserMetier(poste: string, supabase: any): Promise<string | null> {
-  if (!poste) return null;
-  
-  const posteClean = cleanMetierItem(poste);
-  if (!posteClean) return null;
-  
-  // Liste de mapping manuel pour les cas courants
-  const mappingManuel: Record<string, string> = {
-    'administrateur systeme': 'Administrateur systèmes',
-    'administrateur systeme network': 'Administrateur systèmes et réseaux',
-    'ingenieur en chef satellite': 'Ingénieur spatial',
-    'ingenieur satellite': 'Ingénieur spatial',
-    'concepteur developpeur applications': 'Développeur fullstack',
-    'chef de projet informatique': 'Chef de projet IT',
-    'charge de communication': 'Chargé de communication',
-    'community manager': 'Community Manager',
-    'vendeur conseiller omnicanal': 'Vendeur',
-    'equipier polyvalent commerce': 'Vendeur',
-    'poissonnier': 'Poissonnier',
-    'serveur': 'Serveur',
-    'runner': 'Serveur',
-    'maquilleuse': 'Maquilleuse',
-    'professeur de violon': 'Professeur de musique',
-    'technicien industriel': 'Technicien industriel',
-    'ingenieur devops': 'Ingénieur DevOps',
-    'ingenieur sysops': 'Ingénieur SysOps',
-    'administrateur sharepoint': 'Administrateur SharePoint',
-    'preparateur methodes': 'Préparateur méthodes',
-    'programmeur fao': 'Programmeur FAO'
-  };
-  
-  const posteLower = posteClean.toLowerCase();
-  
-  // Vérifier le mapping manuel d'abord
-  for (const [key, value] of Object.entries(mappingManuel)) {
-    if (posteLower.includes(key)) {
-      console.log(`🗺️  Mapping manuel: "${posteClean}" -> "${value}"`);
-      return value;
-    }
-  }
-  
-  // Ensuite, chercher dans les dictionnaires
-  const allDictionnaires = await loadAllDomainDictionaries(supabase);
-  const tousMetiers = allDictionnaires.flatMap(d => d.metiers);
-  
-  // Recherche exacte
-  for (const metierRef of tousMetiers) {
-    if (normalizeForMatching(posteClean) === normalizeForMatching(metierRef)) {
-      return metierRef;
-    }
-  }
-  
-  // Recherche par similarité
-  let meilleurMetier: string | null = null;
-  let meilleurScore = 0.6;
-  
-  for (const metierRef of tousMetiers) {
-    const score = calculateSimilarityAmelioree(posteClean, metierRef);
-    if (score > meilleurScore) {
-      meilleurScore = score;
-      meilleurMetier = metierRef;
-    }
-  }
-  
-  if (meilleurMetier) {
-    console.log(`🎯 Similarité trouvée: "${posteClean}" -> "${meilleurMetier}" (score: ${meilleurScore.toFixed(2)})`);
-  }
-  
-  return meilleurMetier;
 }
 
 function extraireTitrePrincipal(text: string): string | null {
@@ -1012,28 +997,36 @@ function extraireTitrePrincipal(text: string): string | null {
 }
 
 function calculateSimilarityAmelioree(a: string, b: string): number {
-  const aNorm = normalizeForMatching(a);
-  const bNorm = normalizeForMatching(b);
+  const aNorm = a.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const bNorm = b.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   
-  if (aNorm.includes(bNorm) || bNorm.includes(aNorm)) {
-    return 0.9;
-  }
+  if (aNorm === bNorm) return 1.0;
+  if (aNorm.includes(bNorm) || bNorm.includes(aNorm)) return 0.9;
   
-  const wordsA = aNorm.split(' ').filter(w => w.length > 2);
-  const wordsB = bNorm.split(' ').filter(w => w.length > 2);
+  const wordsA = aNorm.split(/\s+/).filter(w => w.length > 2);
+  const wordsB = bNorm.split(/\s+/).filter(w => w.length > 2);
   
   if (wordsA.length === 0 || wordsB.length === 0) return 0;
   
-  const setA = new Set(wordsA);
-  const setB = new Set(wordsB);
+  const commonWords = wordsA.filter(wordA => 
+    wordsB.some(wordB => wordA.includes(wordB) || wordB.includes(wordA))
+  );
   
-  const intersection = new Set([...setA].filter(x => setB.has(x)));
-  const union = new Set([...setA, ...setB]);
-  
-  let score = intersection.size / union.size;
-  
-  if (wordsA[0] === wordsB[0]) score += 0.3;
-  if (wordsA[wordsA.length - 1] === wordsB[wordsB.length - 1]) score += 0.2;
-  
-  return Math.min(score, 1.0);
+  return commonWords.length / Math.max(wordsA.length, wordsB.length);
+}
+
+function cleanMetierItem(item: string): string {
+  return item
+    .replace(/\([^)]*\)/g, '') // Supprimer les parenthèses
+    .replace(/[^a-zA-ZÀ-ÿ0-9\s\-]/g, ' ') // Garder lettres, chiffres, tirets
+    .replace(/\s+/g, ' ') // Espaces multiples -> simple
+    .trim()
+    .split(' ')
+    .filter(word => word.length > 1 && !word.match(/^(de|du|des|le|la|les|à|chez|en|pour|avec|sans)$/i))
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
+function escapeRegex(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
