@@ -66,7 +66,9 @@ router.post("/parse", async (_req: Request, res: Response) => {
         profil: null,
         entreprise: null,
         metiers: [],
-        niveau: null
+        niveau: null,
+        fichier: null,
+        linkedin: null
       };
 
       // 5️⃣ Insertion en base
