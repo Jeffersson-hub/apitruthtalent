@@ -6,6 +6,10 @@ import parseEnhancedRouter from "./routes/parse-enhanced"; // NOUVEAU
 import parseBulkRouter from "./routes/parse-bulk";
 import jobStatusRouter from "./routes/job-status";
 import candidatsRouter from "./routes/candidats";
+import uploadCVRouter from "./routes/upload-cv";
+import analyzeCVsRouter from "./routes/analyze-cvs";
+import listCVsRouter from "./routes/list-cvs";
+import { CVLister } from "./services/cvLister";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -19,9 +23,16 @@ app.use("/api/parse-enhanced", parseEnhancedRouter); // NOUVEAU
 app.use("/api/parse-bulk", parseBulkRouter);
 app.use("/api/job-status", jobStatusRouter);
 app.use("/api/candidats", candidatsRouter);
+app.use("/api/upload-cv", uploadCVRouter);
+app.use("/api/analyze-cvs", analyzeCVsRouter);
+app.use("/api/list-cvs", listCVsRouter);
+app.use("/api/candidats", candidatsRouter);
 
 // Health check
-app.get("/health", (req, res) => {
+app.get("/health", async(req, res) => {
+   const cvLister = new CVLister();
+  const stats = await cvLister.getCVStats().catch(() => null);
+
   res.status(200).json({ 
     status: "OK", 
     timestamp: new Date().toISOString(),
@@ -47,5 +58,8 @@ app.listen(PORT, () => {
   console.log(`📊 Endpoints disponibles:`);
   console.log(`   - POST /api/parse-enhanced/enhanced → Parsing amélioré`);
   console.log(`   - POST /api/parse-enhanced/test → Test de parsing`);
+  console.log(`   - POST /api/upload-cv → Upload CV`);
+  console.log(`   - POST /api/analyze-cvs/process → Analyser tous les CVs`);
+  console.log(`   - GET /api/list-cvs → Lister les CVs`);
   console.log(`   - GET /health → Statut de l'API`);
 });

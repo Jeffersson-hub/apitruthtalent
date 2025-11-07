@@ -160,7 +160,8 @@ export async function extractCVData(buffer: Buffer, filename: string, supabase: 
       postes: postes.slice(0, 5),
       profil: extractProfilFromText(cleanText),
       entreprise,
-      niveau
+      niveau,
+      source_analyse
     };
 
     console.log("✅ Extraction terminée:", {
@@ -971,7 +972,8 @@ function createCandidatVide(filename: string): Candidat {
     postes: [],
     profil: null,
     entreprise: null,
-    niveau: null
+    niveau: null,
+    source_analyse: []
   };
 }
 

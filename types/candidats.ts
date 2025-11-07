@@ -36,4 +36,5 @@ export interface Candidat {
   langues: Langue[];
   metiers: string[];
   niveau: string | null;
+  source_analyse: [];
 }
