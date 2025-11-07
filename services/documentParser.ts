@@ -161,7 +161,7 @@ export async function extractCVData(buffer: Buffer, filename: string, supabase: 
       profil: extractProfilFromText(cleanText),
       entreprise,
       niveau,
-      source_analyse
+      source_analyse: 'document_parser' 
     };
 
     console.log("✅ Extraction terminée:", {
@@ -179,6 +179,28 @@ export async function extractCVData(buffer: Buffer, filename: string, supabase: 
     console.error(`❌ Erreur lors de l'extraction de ${filename}:`, error);
     return createCandidatVide(filename);
   }
+}
+
+function createCandidatVide(filename: string): Candidat {
+  return {
+    fichier: filename,
+    nom: null,
+    prenom: null,
+    email: null,
+    telephone: null,
+    adresse: null,
+    linkedin: null,
+    competences: [],
+    metiers: [],
+    formations: [],
+    experiences: [],
+    langues: [],
+    postes: [],
+    profil: null,
+    entreprise: null,
+    niveau: null,
+    source_analyse: 'erreur' // AJOUTÉ ICI
+  };
 }
 
 // ========================
@@ -953,28 +975,6 @@ async function loadDictionarySafe(supabase: any, path: string): Promise<string[]
     console.error(`💥 Erreur: ${path}`, error);
     return [];
   }
-}
-
-function createCandidatVide(filename: string): Candidat {
-  return {
-    fichier: filename,
-    nom: null,
-    prenom: null,
-    email: null,
-    telephone: null,
-    adresse: null,
-    linkedin: null,
-    competences: [],
-    metiers: [],
-    formations: [],
-    experiences: [],
-    langues: [],
-    postes: [],
-    profil: null,
-    entreprise: null,
-    niveau: null,
-    source_analyse: []
-  };
 }
 
 function extraireTitrePrincipal(text: string): string | null {

@@ -53,7 +53,7 @@ export class AffindaService {
         url: cvUrl,
         fileName: filename,
         workspace: this.workspaceId,
-        wait: true // Attendre le traitement
+        wait: true
       })
     });
 
@@ -129,6 +129,7 @@ export class AffindaService {
     
     return {
       fichier: filename,
+      cv_url: cvUrl,
       nom: data.lastName || null,
       prenom: data.firstName || null,
       email: data.emails?.[0] || null,
@@ -144,7 +145,7 @@ export class AffindaService {
       profil: data.summary || null,
       entreprise: this.extractCurrentCompany(data),
       niveau: this.extractEducationLevel(data),
-      //date_analyse: new Date().toISOString(),
+      date_analyse: new Date().toISOString(),
       source_analyse: 'affinda',
       affinda_doc_id: affindaData.identifier
     };
@@ -226,7 +227,7 @@ export class AffindaService {
     
     return data.languages.map((lang: string) => ({
       langue: lang,
-      niveau: 'Intermédiaire' // Affinda ne donne pas toujours le niveau
+      niveau: 'Intermédiaire'
     }));
   }
 

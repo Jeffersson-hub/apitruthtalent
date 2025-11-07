@@ -69,7 +69,7 @@ router.post("/parse", async (_req: Request, res: Response) => {
         niveau: null,
         fichier: null,
         linkedin: null,
-        source_analyse: [],
+        source_analyse: null,
       };
 
       // 5️⃣ Insertion en base

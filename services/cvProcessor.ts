@@ -21,36 +21,40 @@ export class CVProcessor {
         .from("candidats")
         .select("id, fichier, cv_url, email, nom, prenom")
         .is("date_analyse", null)
-        .limit(10); // Limiter pour éviter les dépassements
+        .limit(10);
 
       if (error) {
         throw error;
       }
 
-      console.log(`📄 ${cvs.length} CVs à analyser`);
+      console.log(`📄 ${cvs?.length || 0} CVs à analyser`);
+
+      if (!cvs || cvs.length === 0) {
+        console.log("✅ Aucun CV à analyser");
+        return;
+      }
 
       for (const cv of cvs) {
         try {
           await this.processSingleCV(cv);
-        } catch (error) {
+        } catch (error: any) {
           console.error(`❌ Erreur traitement CV ${cv.id}:`, error);
-          // Marquer comme erreur mais continuer
           await this.markAsError(cv.id, error.message);
         }
       }
 
       console.log("✅ Traitement des CVs terminé");
 
-    } catch (error) {
+    } catch (error: any) {
       console.error("💥 Erreur globale processUnanalyzedCVs:", error);
       throw error;
     }
   }
 
   /**
-   * Traiter un CV individuel
+   * Traiter un CV individuel - RENDUE PUBLIQUE
    */
-  private async processSingleCV(cv: any): Promise<void> {
+  async processSingleCV(cv: any): Promise<void> {
     console.log(`🔍 Analyse CV: ${cv.fichier}`);
 
     // Marquer comme "en cours d'analyse"

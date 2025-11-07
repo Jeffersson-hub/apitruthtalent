@@ -36,5 +36,14 @@ export interface Candidat {
   langues: Langue[];
   metiers: string[];
   niveau: string | null;
-  source_analyse: [];
+  // CHAMPS OPTIONNELS - TOUS NULLABLE
+  cv_url?: string | null;
+  cv_filename?: string | null;
+  parseur_doc_id?: string | null;
+  status?: string | null;
+  date_upload?: string | null;
+  date_analyse?: string | null;
+  source_analyse?: string | null; // RENDU NULLABLE
+  affinda_doc_id?: string | null;
+  erreur_analyse?: string | null;
 }
