@@ -1,93 +1,91 @@
-// routes/parse-enhanced.ts
-import { Router } from "express";
-import { supabase } from "../utils/supabase";
-import { fetchToBuffer } from "../utils/fetchToBuffer";
-import { CVParserEnhanced } from "../services/cvParserEnhanced";
+import { NextApiRequest, NextApiResponse } from 'next';
+import { LocalAffindaService } from '../services/localAffindaService';
+import { getFileFromStorage } from '../services/storage';
 
-const router = Router();
-const cvParser = new CVParserEnhanced();
+const localAffindaService = new LocalAffindaService();
 
-router.post("/enhanced", async (req, res) => {
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // Gérer CORS
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    return res.status(200).end();
+  }
+
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
   try {
-    const { files } = req.body;
+    const { file_path } = req.body;
     
-    if (!Array.isArray(files) || files.length === 0) {
-      return res.status(400).json({ 
-        error: "Tableau 'files' contenant les URLs des CVs requis" 
-      });
+    if (!file_path) {
+      return res.status(400).json({ error: 'file_path is required' });
     }
 
-    console.log(`🔄 Début parsing amélioré de ${files.length} CVs`);
+    console.log('🔍 Analyse locale du CV:', file_path);
 
-    const results = [];
+    // 1. Récupérer le fichier depuis le storage
+    const fileBuffer = await getFileFromStorage(file_path);
     
-    for (const [index, url] of files.entries()) {
-      try {
-        console.log(`📄 Traitement CV ${index + 1}/${files.length}: ${url}`);
-        
-        const { buffer, filename } = await fetchToBuffer(url);
-        
-        // Utiliser le nouveau parser amélioré
-        const parsedData = await cvParser.parseCV(buffer, filename, supabase);
-        
-        // Insérer dans Supabase
-        const { data, error } = await supabase
-          .from("candidats")
-          .insert(parsedData)
-          .select();
+    // 2. Analyser localement avec la logique Affinda
+    const candidateData = await localAffindaService.analyzeCV(
+      fileBuffer, 
+      file_path.split('/').pop() || 'cv.pdf',
+      `https://cpdokjsyxmohubgvxift.supabase.co/storage/v1/object/public/truthtalent/${file_path}`
+    );
 
-        if (error) {
-          console.error(`❌ Erreur insertion ${filename}:`, error);
-          results.push({ 
-            url, 
-            success: false, 
-            error: error.message,
-            filename 
-          });
-        } else {
-          console.log(`✅ CV ${filename} parsé et inséré avec succès`);
-          results.push({ 
-            url, 
-            success: true, 
-            data: parsedData,
-            filename,
-            id: data?.[0]?.id 
-          });
-        }
+    // 3. Insérer dans Supabase
+    const { createClient } = require('@supabase/supabase-js');
+    const supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_KEY
+    );
+
+    const { data, error } = await supabase
+      .from('candidats')
+      .insert(candidateData)
+      .select()
+      .single();
+
+    if (error) {
+      // Gestion des doublons
+      if (error.code === '23505') {
+        console.log('🔄 Doublon détecté, mise à jour...');
         
-      } catch (error: any) {
-        console.error(`💥 Erreur traitement ${url}:`, error);
-        results.push({ 
-          url, 
-          success: false, 
-          error: error.message 
+        const { data: updatedData, error: updateError } = await supabase
+          .from('candidats')
+          .update(candidateData)
+          .eq('email', candidateData.email)
+          .select()
+          .single();
+
+        if (updateError) throw updateError;
+        
+        return res.status(200).json({
+          success: true,
+          candidat: updatedData,
+          message: 'CV analysé et candidat mis à jour'
         });
       }
+      throw error;
     }
 
-    // Statistiques
-    const successCount = results.filter(r => r.success).length;
-    const errorCount = results.filter(r => !r.success).length;
-    
-    console.log(`🎉 Parsing terminé: ${successCount} succès, ${errorCount} erreurs`);
-
+    res.setHeader('Access-Control-Allow-Origin', '*');
     res.status(200).json({
       success: true,
-      summary: {
-        total: files.length,
-        success: successCount,
-        errors: errorCount
-      },
-      results
+      candidat: data,
+      message: 'CV analysé localement avec succès'
     });
 
-  } catch (error: any) {
-    console.error('💥 Erreur globale parsing:', error);
-    res.status(500).json({ 
-      error: "Erreur interne du serveur", 
-      details: error.message 
+  } catch (error: any) { // Correction: spécifier le type
+    console.error('❌ Erreur analyse locale:', error);
+    
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
-});
-
-export default router;
+}

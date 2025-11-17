@@ -1,9 +1,36 @@
 // services/storage.ts
 import express, { Request, Response } from "express";
-import { supabase } from "../utils/supabase";
 import pdfParse from "pdf-parse";
 import { Candidat} from "../types/candidats";
+import { createClient } from '@supabase/supabase-js';
 
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_KEY!
+);
+
+/**
+ * Récupérer un fichier depuis Supabase Storage
+ */
+export async function getFileFromStorage(filePath: string): Promise<Buffer> {
+  const { data, error } = await supabase.storage
+    .from('truthtalent')
+    .download(filePath);
+
+  if (error) {
+    throw new Error(`Erreur téléchargement fichier: ${error.message}`);
+  }
+
+  if (!data) {
+    throw new Error('Fichier non trouvé');
+  }
+
+  // Convertir Blob en Buffer
+  const arrayBuffer = await data.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
+// Autres fonctions existantes...
 const router = express.Router();
 
 export async function uploadToStorage(bucket: string, path: string, buffer: Buffer, mimeType?: string) {
