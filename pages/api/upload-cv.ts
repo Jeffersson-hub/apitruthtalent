@@ -1,8 +1,8 @@
 // routes/upload-cv.ts
 import { Router } from "express";
 import multer from "multer";
-import { supabase } from "../utils/supabase";
-import { ParseurService } from "../services/parseurService";
+import { supabase } from "../../utils/supabase";
+import { ParseurService } from "../../services/parseurService";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });

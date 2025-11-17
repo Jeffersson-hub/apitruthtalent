@@ -1,6 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { LocalAffindaService } from '../services/localAffindaService';
-import { getFileFromStorage } from '../services/storage';
+import { LocalAffindaService } from '../../services/localAffindaService';
+import { getFileFromStorage } from '../../services/storage';
 
 const localAffindaService = new LocalAffindaService();
 

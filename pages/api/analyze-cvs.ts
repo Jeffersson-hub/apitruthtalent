@@ -1,7 +1,7 @@
 // routes/analyze-cvs.ts
 import { Router } from "express";
-import { CVProcessor } from "../services/cvProcessor";
-import { supabase } from "../utils/supabase";
+import { CVProcessor } from "../../services/cvProcessor";
+import { supabase } from "../../utils/supabase";
 
 const router = Router();
 const cvProcessor = new CVProcessor();
