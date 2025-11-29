@@ -1,7 +1,15 @@
+// pages/api/parse.ts - VERSION CORRIGÉE
 import { NextApiRequest, NextApiResponse } from 'next';
 import fetch from "node-fetch";
 import pdfParse from "pdf-parse";
 import mammoth from "mammoth";
+
+// Configuration CORS
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS, GET',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, apikey, x-client-info',
+};
 
 // ---------- Regex & helpers ----------
 const emailRe = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
@@ -15,7 +23,7 @@ function splitName(text: string) {
 }
 
 function extractLinkedIn(text: string) {
-  const m = text.match(/linkedin\.com\/(?:in|pub)\/[a-z0-9\-_%]+/i);
+  const m = text.match(/linkedin\.com\/(?:in|pub)\/[a-z0-9\-_%]+/gi);
   return m ? m[0] : null;
 }
 
@@ -69,37 +77,126 @@ const profilsDict = ["Ingénieur Logiciel","Développeur Fullstack","Chef de pro
 
 // ---------- Utils ----------
 async function fetchArrayBuffer(url: string) {
-  const r = await fetch(url);
-  if (!r.ok) throw new Error(`Download failed: ${r.status}`);
+  console.log("🔗 Téléchargement depuis:", url);
+  
+  // Vérifier que c'est une URL Supabase valide
+  if (!url.includes('supabase.co')) {
+    throw new Error('URL non autorisée: doit être une URL Supabase');
+  }
+
+  const r = await fetch(url, {
+    //timeout: 30000,
+    headers: {
+      'User-Agent': 'TruthTalent-Parser/1.0'
+    }
+  });
+  
+  if (!r.ok) {
+    console.error("❌ Erreur téléchargement:", r.status, r.statusText);
+    
+    // Gestion spécifique des erreurs Supabase
+    if (r.status === 400) {
+      throw new Error('URL invalide ou fichier non trouvé dans Supabase Storage');
+    }
+    if (r.status === 403) {
+      throw new Error('Accès refusé - vérifiez les permissions du bucket');
+    }
+    if (r.status === 404) {
+      throw new Error('Fichier non trouvé dans Supabase Storage');
+    }
+    
+    throw new Error(`Download failed: ${r.status} ${r.statusText}`);
+  }
+
   const buf = await r.arrayBuffer();
+  console.log("✅ Téléchargement réussi, taille:", buf.byteLength, "bytes");
   return Buffer.from(buf);
 }
 
 async function bufferToText(fileName: string, buf: Buffer) {
   const ext = fileName.toLowerCase().split('.').pop();
+  console.log("📄 Extraction texte, extension:", ext);
+  
   if (ext === "pdf") {
-    const data = await pdfParse(buf);
-    return data.text || "";
+    try {
+      const data = await pdfParse(buf);
+      console.log("✅ PDF parsé, texte longueur:", data.text?.length || 0);
+      return data.text || "";
+    } catch (error) {
+      console.error("❌ Erreur parsing PDF:", error);
+      throw new Error('Erreur lors de l\'extraction du PDF');
+    }
   }
+  
   if (ext === "docx") {
-    const res = await mammoth.extractRawText({ buffer: buf });
-    return res.value || "";
+    try {
+      const res = await mammoth.extractRawText({ buffer: buf });
+      console.log("✅ DOCX parsé, texte longueur:", res.value?.length || 0);
+      return res.value || "";
+    } catch (error) {
+      console.error("❌ Erreur parsing DOCX:", error);
+      throw new Error('Erreur lors de l\'extraction du DOCX');
+    }
   }
-  return buf.toString("utf8");
+  
+  // Pour les autres types, essayer de lire comme texte
+  try {
+    const text = buf.toString("utf8");
+    console.log("✅ Texte brut, longueur:", text.length);
+    return text;
+  } catch (error) {
+    throw new Error(`Format non supporté: ${ext}`);
+  }
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  console.log("🔍 API Parse called - Method:", req.method);
+  
+  // Gestion CORS
+  if (req.method === 'OPTIONS') {
+    console.log("🔄 Préflight CORS");
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS, GET');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, apikey, x-client-info');
+    return res.status(200).end();
+  }
+
+  // Seulement POST autorisé
   if (req.method !== 'POST') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
     const { file_url, file_name } = req.body as { file_url: string; file_name: string };
-    if (!file_url || !file_name) return res.status(400).json({ error: "file_url and file_name required" });
+    console.log("📦 Request body:", { 
+      file_url: file_url?.substring(0, 100) + '...', 
+      file_name 
+    });
 
+    if (!file_url || !file_name) {
+      console.log("❌ Missing parameters");
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      return res.status(400).json({ error: "file_url and file_name required" });
+    }
+
+    console.log("⬇️ Downloading file...");
     const buf = await fetchArrayBuffer(file_url);
-    const text = await bufferToText(file_name, buf);
 
+    if (buf.length === 0) {
+      throw new Error("Fichier vide ou corrompu");
+    }
+
+    console.log("🔤 Extracting text...");
+    const text = await bufferToText(file_name, buf);
+    console.log("✅ Text extracted, length:", text.length);
+
+    if (!text || text.length < 10) {
+      console.log("❌ No text extracted");
+      throw new Error("No text could be extracted from the file");
+    }
+
+    // Extraction des données
     const { nom, prenom } = splitName(text);
     const email = (text.match(emailRe) ?? [null])[0];
     const telephone = (text.match(phoneRe) ?? [null])[0]?.replace(/\s+/g, '') ?? null;
@@ -113,16 +210,50 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const payload = {
       fichier: file_name,
-      nom, prenom, email, telephone, adresse: null,
-      poste: null, entreprise: null, profil: profilsDict[0] ?? null,
+      nom, 
+      prenom, 
+      email, 
+      telephone, 
+      adresse: null,
+      poste: null, 
+      entreprise: null, 
+      profil: profilsDict[0] ?? null,
       linkedin,
-      competences, metiers, links,
-      experiences, formations, langues,
-      raw_text: text
+      competences, 
+      metiers, 
+      links,
+      experiences, 
+      formations, 
+      langues,
+      raw_text: text.substring(0, 1000) // Limiter pour les logs
     };
 
+    console.log("✅ Analysis completed:", { 
+      name: `${prenom} ${nom}`, 
+      email, 
+      skills: competences.length,
+      experiences: experiences.length 
+    });
+
+    // Réponse avec CORS
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS, GET');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, apikey, x-client-info');
+    
     res.json({ ok: true, data: payload });
+
   } catch (e: any) {
-    res.status(500).json({ ok: false, error: e.message });
+    console.error("💥 API Error:", e);
+    
+    // Réponse d'erreur avec CORS
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS, GET');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, apikey, x-client-info');
+    
+    res.status(500).json({ 
+      ok: false, 
+      error: e.message,
+      stack: process.env.NODE_ENV === 'development' ? e.stack : undefined
+    });
   }
 }
