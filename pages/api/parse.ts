@@ -70,6 +70,133 @@ function extractLangues(text: string) {
   return out;
 }
 
+// ============ NOUVELLE FONCTION : EXTRACTION DU NIVEAU ============
+
+function extractNiveauFromFormations(formations: any[]): string | null {
+    if (!formations || formations.length === 0) return null;
+    
+    // Hiérarchie des niveaux (du plus élevé au plus bas)
+    const niveauHierarchy: {[key: string]: {score: number, label: string}} = {
+        'doctorat': { score: 8, label: 'Doctorat' },
+        'phd': { score: 8, label: 'Doctorat' },
+        'master 2': { score: 7, label: 'Master' },
+        'master': { score: 7, label: 'Master' },
+        'mastère': { score: 7, label: 'Master' },
+        'm2': { score: 7, label: 'Master' },
+        'master 1': { score: 6, label: 'Master 1' },
+        'm1': { score: 6, label: 'Master 1' },
+        'licence': { score: 5, label: 'Licence' },
+        'bac+3': { score: 5, label: 'Licence' },
+        'bachelor': { score: 5, label: 'Bachelor' },
+        'bts': { score: 4, label: 'BTS' },
+        'dut': { score: 4, label: 'DUT' },
+        'deug': { score: 4, label: 'DEUG' },
+        'bac+2': { score: 4, label: 'BAC+2' },
+        'baccalauréat': { score: 3, label: 'BAC' },
+        'bac': { score: 3, label: 'BAC' },
+        'bep': { score: 2, label: 'BEP' },
+        'cap': { score: 2, label: 'CAP' },
+        'brevet': { score: 1, label: 'Brevet' }
+    };
+    
+    let meilleurNiveau: string | null = null;
+    let meilleurScore = 0;
+    
+    formations.forEach(formation => {
+        const rawText = formation.raw?.toLowerCase() || '';
+        
+        console.log(`📚 Analyse formation pour niveau: "${rawText}"`);
+        
+        // Chercher chaque mot-clé dans le texte
+        Object.entries(niveauHierarchy).forEach(([motCle, info]) => {
+            if (rawText.includes(motCle)) {
+                // Éviter les faux positifs
+                if (motCle === 'bachelor' && rawText.includes('bts')) return;
+                if (motCle === 'bac' && rawText.includes('baccalaureat')) return;
+                if (motCle === 'm1' && rawText.includes('m2')) return; // M2 > M1
+                
+                if (info.score > meilleurScore) {
+                    meilleurScore = info.score;
+                    meilleurNiveau = info.label;
+                    console.log(`🎓 Niveau détecté: ${info.label} (score: ${info.score})`);
+                }
+            }
+        });
+    });
+    
+    return meilleurNiveau;
+}
+
+// ============ FONCTION FORMATIONS AMÉLIORÉE ============
+
+function extractFormationsAmelioree(text: string) {
+    const lines = text.split(/\r?\n/).filter(Boolean);
+    const formations: any[] = [];
+    
+    const patterns = [
+        /(bac|baccalauréat|bac pro|bac techno|bac général)/i,
+        /(bts|brevet de technicien supérieur|bac\+2)/i,
+        /(dut|deug|diplôme universitaire de technologie|bac\+2)/i,
+        /(licence|bachelor|bac\+3)/i,
+        /(master 1|m1|maîtrise)/i,
+        /(master 2|m2|master|mastère)/i,
+        /(doctorat|phd|doctorat ès)/i,
+        /(ingénieur|diplôme d'ingénieur)/i,
+        /(cap|certificat d'aptitude professionnelle)/i,
+        /(bep|brevet d'études professionnelles)/i
+    ];
+    
+    lines.forEach(line => {
+        const trimmed = line.trim();
+        let hasDiploma = false;
+        
+        // Vérifier si la ligne contient un terme de diplôme
+        patterns.forEach(pattern => {
+            if (pattern.test(trimmed)) {
+                hasDiploma = true;
+            }
+        });
+        
+        // Vérifier aussi les mots-clés généraux
+        if (!hasDiploma) {
+            const diplomaKeywords = ['diplôme', 'diplômé', 'diplomé', 'diplomée', 'formation', 'école', 'université', 'faculté'];
+            hasDiploma = diplomaKeywords.some(keyword => 
+                trimmed.toLowerCase().includes(keyword)
+            );
+        }
+        
+        if (hasDiploma && trimmed.length > 5) {
+            formations.push({
+                raw: trimmed,
+                // Extraire l'année si présente
+                annee: trimmed.match(/(19|20)\d{2}/)?.[0] || null,
+                // Extraire l'établissement
+                ecole: extractEcoleFromFormation(trimmed)
+            });
+        }
+    });
+    
+    return formations.slice(0, 10); // Limiter à 10 formations
+}
+
+function extractEcoleFromFormation(text: string): string | null {
+    const ecoles = [
+        'université', 'école', 'faculté', 'institut', 'lycée', 'collège',
+        'polytechnique', 'centrale', 'mines', 'ponts', 'ens', 'hec', 'essec', 'escp',
+        'sciences po', 'sorbonne', 'paris', 'lyon', 'toulouse', 'grenoble'
+    ];
+    
+    for (const ecole of ecoles) {
+        if (text.toLowerCase().includes(ecole)) {
+            // Retourner le mot avec sa casse d'origine
+            const match = text.match(new RegExp(ecole, 'i'));
+            return match ? match[0] : null;
+        }
+    }
+    
+    return null;
+}
+
 // ---------- Dictionnaires ----------
 const competencesDict = ["javascript","typescript","react","node","sql","python","docker","aws","gcp","azure","postgresql","supabase"];
 const metiersDict = ["développeur","data engineer","data scientist","product manager","devops","fullstack","frontend","backend"];
@@ -205,7 +332,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const competences = extractCompetencesByDict(text, competencesDict);
     const metiers = extractCompetencesByDict(text, metiersDict);
     const experiences = extractExperiences(text);
-    const formations = extractFormations(text);
+    const formations = extractFormationsAmelioree(text);
+    const niveau = extractNiveauFromFormations(formations);
     const langues = extractLangues(text);
 
     const payload = {
@@ -223,7 +351,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       metiers, 
       links,
       experiences, 
-      formations, 
+      formations,
+      niveau,
       langues,
       raw_text: text.substring(0, 1000) // Limiter pour les logs
     };
