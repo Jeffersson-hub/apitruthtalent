@@ -1,8 +1,17 @@
 {
   "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
+  "/api/affinda-webhook": "pages/api/affinda-webhook.js",
+  "/api/analyze-cvs": "pages/api/analyze-cvs.js",
   "/api/candidats": "pages/api/candidats.js",
+  "/api/debug-bucket": "pages/api/debug-bucket.js",
+  "/api/job-status": "pages/api/job-status.js",
+  "/api/list-cvs": "pages/api/list-cvs.js",
+  "/api/parse-bulk": "pages/api/parse-bulk.js",
+  "/api/parse-enhanced": "pages/api/parse-enhanced.js",
   "/api/parse": "pages/api/parse.js",
+  "/api/test-insert": "pages/api/test-insert.js",
+  "/api/upload-cv": "pages/api/upload-cv.js",
   "/api/upload": "pages/api/upload.js",
   "/_document": "pages/_document.js",
   "/404": "pages/404.html"

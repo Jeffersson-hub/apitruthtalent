@@ -203,6 +203,7 @@
       "devtoolSegmentExplorer": true,
       "browserDebugInfoInTerminal": false,
       "optimizeRouterScrolling": false,
+      "middlewareClientMaxBodySize": 10485760,
       "optimizePackageImports": [
         "lucide-react",
         "date-fns",
