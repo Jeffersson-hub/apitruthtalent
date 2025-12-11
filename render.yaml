@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: apitruthtalent
+    runtime: node
+    region: frankfurt  # ou virginia, oregon, singapore, etc.
+    plan: free  # ou starter, standard, etc.
+    buildCommand: npm run build
+    startCommand: npm start
+    autoDeploy: true
+  

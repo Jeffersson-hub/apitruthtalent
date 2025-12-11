@@ -38,3 +38,9 @@ package-lock.json
 yarn.lock
 pnpm-lock.yaml
 .vercel
+
+# Configuration spécifique aux environnements
+/vercel.json    # Supprimez cette ligne si vous la gardez pour Vercel
+/render.yaml    # Supprimez cette ligne si vous la gardez pour Render
+
+# Décommenter UNE SEULE des deux lignes ci-dessus selon votre besoin
