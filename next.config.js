@@ -7,7 +7,6 @@ const nextConfig = {
   },
   webpack: (config, { isServer }) => {
     if (!isServer) {
-      // Les packages suivants ne doivent pas être bundle côté client
       config.resolve.fallback = {
         ...config.resolve.fallback,
         fs: false,
@@ -16,12 +15,11 @@ const nextConfig = {
       };
     }
 
-    // Support pour les modules ESM
     config.experiments = { ...config.experiments, topLevelAwait: true };
     
     return config;
   },
-  async headers() {
+  headers: async () => {
     return [
       {
         source: '/api/:path*',
@@ -34,7 +32,7 @@ const nextConfig = {
       },
     ];
   },
-  async rewrites() {
+  rewrites: async () => {
     return [
       {
         source: '/api/:path*',
@@ -44,4 +42,4 @@ const nextConfig = {
   },
 };
 
-module.exports = nextConfig;
+export default nextConfig;
