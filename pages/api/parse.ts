@@ -1,376 +1,494 @@
-// pages/api/parse.ts - VERSION CORRIGÉE ET UNIFIÉE
+// pages/api/parse.ts - VERSION OPTIMISÉE POUR VERCEL
 import { NextApiRequest, NextApiResponse } from 'next';
 import fetch from "node-fetch";
 import pdfParse from "pdf-parse";
 import mammoth from "mammoth";
+import { createWorker, Worker } from 'tesseract.js';
 
-// Configuration CORS
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS, GET',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, apikey, x-client-info',
-};
 
-// ---------- Regex & helpers ----------
-const emailRe = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
-const phoneRe = /(\+33\s?|0)[1-9](?:[\s.-]?\d{2}){4}/g;
-const urlRe   = /\bhttps?:\/\/[^\s)]+/gi;
-const nameRe  = /\b([A-ZÉÀÂÄ][a-zéèêëàâäîïôöùûüç'-]+)\s+([A-ZÉÀÂÄ][A-Za-zéèêëàâäîïôöùûüç'-]+)\b/;
-
-function splitName(text: string) {
-  const m = text.match(nameRe);
-  return { prenom: m?.[1] ?? null, nom: m?.[2] ?? null };
+// ---------- Types ----------
+interface Experience {
+  debut: string | null;
+  fin: string | null;
+  poste: string | null;
+  entreprise: string | null;
+  description: string;
 }
 
-function extractLinkedIn(text: string) {
-  const m = text.match(/linkedin\.com\/(?:in|pub)\/[a-z0-9\-_%]+/gi);
-  return m ? m[0] : null;
+interface Formation {
+  raw: string;
+  annee: string | null;
+  ecole: string | null;
+  diplome: string | null;
 }
 
-function unique<T>(arr: T[]) { return Array.from(new Set(arr)); }
+interface Langue {
+  langue: string;
+  niveau: string;
+}
+
+interface ParsedData {
+  fichier: string;
+  nom: string | null;
+  prenom: string | null;
+  email: string | null;
+  telephone: string | null;
+  adresse: string | null;
+  poste: string | null;
+  entreprise: string | null;
+  profil: string;
+  linkedin: string | null;
+  competences: string[];
+  metiers: string[];
+  links: string[];
+  experiences: Experience[];
+  formations: Formation[];
+  niveau: string | null;
+  langues: Langue[];
+  raw_text: string;
+  extraction_date: string;
+  file_type: string | undefined;
+}
+
+// ---------- Regex patterns ----------
+const EMAIL_REGEX = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
+const PHONE_REGEX = /(\+33\s?|0)[1-9](?:[\s.-]?\d{2}){4}/g;
+const URL_REGEX = /\bhttps?:\/\/[^\s)]+/gi;
+const NAME_REGEX = /\b([A-ZÉÀÂÄ][a-zéèêëàâäîïôöùûüç'-]+)\s+([A-ZÉÀÂÄ][A-Za-zéèêëàâäîïôöùûüç'-]+)\b/;
+
+// ---------- Helper functions ----------
+function splitName(text: string): { prenom: string | null; nom: string | null } {
+  const match = text.match(NAME_REGEX);
+  return { prenom: match?.[1] ?? null, nom: match?.[2] ?? null };
+}
+
+function extractLinkedIn(text: string): string | null {
+  const match = text.match(/linkedin\.com\/(?:in|pub)\/[a-z0-9\-_%]+/gi);
+  return match ? match[0] : null;
+}
+
+function unique<T>(arr: T[]): T[] {
+  return Array.from(new Set(arr));
+}
 
 function extractCompetencesByDict(text: string, dict: string[]): string[] {
-  const low = text.toLowerCase();
-  return unique(dict.filter(x => low.includes(x.toLowerCase())));
+  const lowercaseText = text.toLowerCase();
+  return unique(dict.filter(skill => lowercaseText.includes(skill.toLowerCase())));
 }
 
-function extractExperiences(text: string) {
-  const re = /\b(19|20)\d{2}\s*[-–]\s*((19|20)\d{2}|présent|aujourd'hui)\b([\s\S]*?)(?=\b(19|20)\d{2}\s*[-–]\s*((19|20)\d{2}|présent|aujourd'hui)\b|$)/gi;
-  const out: any[] = [];
-  let m;
-  while ((m = re.exec(text)) !== null) {
-    out.push({
-      debut: m[1] ? m[0].slice(0,4) : null,
-      fin:   m[2],
-      description: m[4].trim().slice(0, 2000)
-    });
-  }
-  return out;
-}
-
-function extractLangues(text: string) {
-  const langs = ['français','anglais','espagnol','allemand','italien','portugais','arabe','chinois','mandarin','japonais','russe','néerlandais','turc','polonais'];
-  const levels = ['A1','A2','B1','B2','C1','C2','débutant','intermédiaire','avancé','courant','bilingue','natif','native'];
-  const lines = text.split(/\r?\n/);
-  const out: any[] = [];
-  for (const line of lines) {
-    const l = langs.find(x => line.toLowerCase().includes(x));
-    if (!l) continue;
-    const n = levels.find(x => line.toLowerCase().includes(x.toLowerCase())) ?? '';
-    if (!out.some(y => y.langue === l && y.niveau === n)) out.push({ langue: l, niveau: n });
-  }
-  return out;
-}
-
-// ============ FONCTION UNIQUE POUR LES FORMATIONS ============
-
-function extractFormations(text: string) {
-  const lines = text.split(/\r?\n/).filter(Boolean);
-  const formations: any[] = [];
-  
-  // Patterns pour détecter les diplômes
-  const diplomaPatterns = [
-    /(doctorat|phd|doctorat ès)/i,
-    /(ingénieur|diplôme d'ingénieur)/i,
-    /(master 2|m2|master|mastère)/i,
-    /(master 1|m1|maîtrise)/i,
-    /(licence|bachelor|bac\+3)/i,
-    /(bts|brevet de technicien supérieur)/i,
-    /(dut|diplôme universitaire de technologie)/i,
-    /(deug)/i,
-    /(baccalauréat|bac pro|bac techno|bac général|bac)/i,
-    /(bep|brevet d'études professionnelles)/i,
-    /(cap|certificat d'aptitude professionnelle)/i,
-    /(brevet)/i
+function extractExperiences(text: string): Experience[] {
+  const experiences: Experience[] = [];
+  const experiencePatterns = [
+    /(\b(19|20)\d{2}\b)[\s\-–]+(\b(19|20)\d{2}\b|\bprésent\b)/gi,
+    /(\b\d{1,2}\/\d{4}\b)[\s\-–]+(\b\d{1,2}\/\d{4}\b|\bprésent\b)/gi,
   ];
-  
-  lines.forEach(line => {
-    const trimmed = line.trim();
-    
-    // Vérifier si la ligne contient un terme de diplôme
-    const hasDiploma = diplomaPatterns.some(pattern => pattern.test(trimmed)) ||
-                      /(diplôme|diplômé|diplomé|diplomée|formation|école|université|faculté|études)/i.test(trimmed);
-    
-    if (hasDiploma && trimmed.length > 5) {
-      formations.push({
-        raw: trimmed,
-        // Extraire l'année si présente
-        annee: trimmed.match(/(19|20)\d{2}/)?.[0] || null,
-        // Extraire l'établissement
-        ecole: extractEcoleFromFormation(trimmed)
+
+  for (const pattern of experiencePatterns) {
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      const startIndex = Math.max(0, match.index - 50);
+      const endIndex = Math.min(text.length, match.index + match[0].length + 200);
+      const context = text.substring(startIndex, endIndex).replace(/\s+/g, ' ').trim();
+      
+      // Extraire le poste et l'entreprise
+      const lines = context.split('\n').filter(l => l.trim().length > 3);
+      let poste = null;
+      let entreprise = null;
+      
+      for (const line of lines) {
+        if (!poste && line.match(/[A-Z][a-z]+.*[A-Z][a-z]+/)) {
+          poste = line.trim();
+        }
+        if (!entreprise && line.toLowerCase().match(/(s\.a\.|sarl|sas|groupe|company|inc\.|ltd)/)) {
+          entreprise = line.trim();
+        }
+      }
+      
+      experiences.push({
+        debut: match[1]?.replace(/^(\d{1,2})\/(\d{4})$/, '$2') || null,
+        fin: match[3]?.replace(/^(\d{1,2})\/(\d{4})$/, '$2') || 'présent',
+        poste,
+        entreprise,
+        description: context.slice(0, 1000)
       });
-    }
-  });
-  
-  return formations.slice(0, 15); // Limiter à 15 formations
-}
-
-function extractEcoleFromFormation(text: string): string | null {
-  const ecoles = [
-    'université', 'école', 'faculté', 'institut', 'lycée', 'collège',
-    'polytechnique', 'centrale', 'mines', 'ponts', 'ens', 'hec', 'essec', 'escp',
-    'sciences po', 'sorbonne', 'paris', 'lyon', 'toulouse', 'grenoble', 'montpellier'
-  ];
-  
-  for (const ecole of ecoles) {
-    if (text.toLowerCase().includes(ecole)) {
-      // Retourner le mot avec sa casse d'origine
-      const match = text.match(new RegExp(ecole, 'i'));
-      return match ? match[0] : null;
+      
+      if (experiences.length >= 10) break; // Limiter à 10 expériences
     }
   }
   
-  return null;
+  return experiences;
 }
 
-// ============ FONCTION EXTRACTION DU NIVEAU ============
-
-function extractNiveauFromFormations(formations: any[]): string | null {
-  if (!formations || formations.length === 0) return null;
+function extractFormations(text: string): Formation[] {
+  const formations: Formation[] = [];
+  const lines = text.split('\n').filter(line => line.trim().length > 5);
   
-  // Hiérarchie des niveaux (du plus élevé au plus bas)
-  const niveauHierarchy: {[key: string]: {score: number, label: string}} = {
-    'doctorat': { score: 10, label: 'Doctorat' },
-    'phd': { score: 10, label: 'Doctorat' },
-    'ingénieur': { score: 9, label: 'Ingénieur' },
-    'master 2': { score: 8, label: 'Master' },
-    'master': { score: 8, label: 'Master' },
-    'mastère': { score: 8, label: 'Master' },
-    'm2': { score: 8, label: 'Master' },
-    'master 1': { score: 7, label: 'Master 1' },
-    'm1': { score: 7, label: 'Master 1' },
-    'licence': { score: 6, label: 'Licence' },
-    'bac+3': { score: 6, label: 'Licence' },
-    'bachelor': { score: 6, label: 'Bachelor' },
-    'bts': { score: 5, label: 'BTS' },
-    'dut': { score: 5, label: 'DUT' },
-    'deug': { score: 5, label: 'DEUG' },
-    'bac+2': { score: 5, label: 'BAC+2' },
-    'baccalauréat': { score: 4, label: 'BAC' },
-    'bac': { score: 4, label: 'BAC' },
-    'bep': { score: 3, label: 'BEP' },
-    'cap': { score: 3, label: 'CAP' },
-    'brevet': { score: 2, label: 'Brevet' }
+  const diplomaKeywords = [
+    'doctorat', 'phd', 'ingénieur', 'master', 'm2', 'm1', 'licence', 
+    'bachelor', 'bts', 'dut', 'deug', 'bac', 'baccalauréat', 'bep', 'cap'
+  ];
+  
+  const schoolKeywords = [
+    'université', 'école', 'faculté', 'institut', 'polytechnique', 
+    'centrale', 'mines', 'hec', 'essec', 'escp', 'sciences po', 'sorbonne'
+  ];
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].toLowerCase();
+    
+    // Vérifier si la ligne contient un mot-clé de diplôme
+    const hasDiplomaKeyword = diplomaKeywords.some(keyword => line.includes(keyword));
+    const hasSchoolKeyword = schoolKeywords.some(keyword => line.includes(keyword));
+    
+    if (hasDiplomaKeyword || hasSchoolKeyword) {
+      let formationText = lines[i].trim();
+      
+      // Ajouter la ligne suivante si elle existe et semble liée
+      if (i < lines.length - 1) {
+        const nextLine = lines[i + 1].trim();
+        if (nextLine.length > 3 && !nextLine.match(/^\d/)) {
+          formationText += ' ' + nextLine;
+        }
+      }
+      
+      const yearMatch = formationText.match(/(19|20)\d{2}/);
+      const ecole = schoolKeywords.find(keyword => formationText.toLowerCase().includes(keyword));
+      const diplome = diplomaKeywords.find(keyword => formationText.toLowerCase().includes(keyword));
+      
+      formations.push({
+        raw: formationText,
+        annee: yearMatch ? yearMatch[0] : null,
+        ecole: ecole ? ecole.charAt(0).toUpperCase() + ecole.slice(1) : null,
+        diplome: diplome ? diplome.charAt(0).toUpperCase() + diplome.slice(1) : null
+      });
+      
+      if (formations.length >= 5) break; // Limiter à 5 formations
+    }
+  }
+  
+  return formations;
+}
+
+function extractNiveauFromFormations(formations: Formation[]): string | null {
+  if (formations.length === 0) return null;
+  
+  const niveauScores: { [key: string]: number } = {
+    'doctorat': 100,
+    'phd': 100,
+    'ingénieur': 90,
+    'master': 80,
+    'm2': 80,
+    'm1': 70,
+    'licence': 60,
+    'bachelor': 60,
+    'bts': 50,
+    'dut': 50,
+    'deug': 40,
+    'bac': 30,
+    'baccalauréat': 30,
+    'bep': 20,
+    'cap': 10
   };
   
-  let meilleurNiveau: string | null = null;
-  let meilleurScore = 0;
+  let bestScore = 0;
+  let bestNiveau: string | null = null;
   
   formations.forEach(formation => {
-    const rawText = formation.raw?.toLowerCase() || '';
+    const rawText = formation.raw.toLowerCase();
     
-    // Chercher chaque mot-clé dans le texte
-    Object.entries(niveauHierarchy).forEach(([motCle, info]) => {
-      if (rawText.includes(motCle)) {
-        // Éviter les faux positifs
-        if (motCle === 'bachelor' && rawText.includes('bts')) return;
-        if (motCle === 'bac' && rawText.includes('baccalaureat')) return;
-        if (motCle === 'm1' && rawText.includes('m2')) return; // M2 > M1
-        if (motCle === 'dut' && rawText.includes('doctorat')) return; // Doctorat > DUT
+    Object.entries(niveauScores).forEach(([niveau, score]) => {
+      if (rawText.includes(niveau) && score > bestScore) {
+        bestScore = score;
+        bestNiveau = niveau.charAt(0).toUpperCase() + niveau.slice(1);
+      }
+    });
+  });
+  
+  return bestNiveau;
+}
+
+function extractLangues(text: string): Langue[] {
+  const langues: Langue[] = [];
+  const languages = [
+    'français', 'anglais', 'espagnol', 'allemand', 'italien', 
+    'portugais', 'arabe', 'chinois', 'japonais', 'russe'
+  ];
+  
+  const niveauKeywords = ['courant', 'bilingue', 'natif', 'expérimenté', 'intermédiaire', 'débutant'];
+  
+  text.split('\n').forEach(line => {
+    const lowercaseLine = line.toLowerCase();
+    
+    languages.forEach(lang => {
+      if (lowercaseLine.includes(lang)) {
+        let niveau = 'non spécifié';
+        niveauKeywords.forEach(niv => {
+          if (lowercaseLine.includes(niv)) {
+            niveau = niv;
+          }
+        });
         
-        if (info.score > meilleurScore) {
-          meilleurScore = info.score;
-          meilleurNiveau = info.label;
-          console.log(`🎓 Niveau détecté dans "${rawText.substring(0, 50)}...": ${info.label} (score: ${info.score})`);
+        // Éviter les doublons
+        if (!langues.some(l => l.langue === lang)) {
+          langues.push({ langue: lang, niveau });
         }
       }
     });
   });
   
-  // Si aucun niveau trouvé dans les formations, chercher dans tout le texte
-  if (!meilleurNiveau) {
-    console.log("ℹ️ Aucun niveau détecté dans les formations spécifiques");
-  }
-  
-  return meilleurNiveau;
+  return langues.slice(0, 5); // Limiter à 5 langues
 }
 
-// ---------- Dictionnaires ----------
-const competencesDict = ["javascript","typescript","react","node","sql","python","docker","aws","gcp","azure","postgresql","supabase"];
-const metiersDict = ["développeur","data engineer","data scientist","product manager","devops","fullstack","frontend","backend"];
-const profilsDict = ["Ingénieur Logiciel","Développeur Fullstack","Chef de projet"];
-
-// ---------- Utils ----------
-async function fetchArrayBuffer(url: string) {
-  console.log("🔗 Téléchargement depuis:", url);
-  
-  // Vérifier que c'est une URL Supabase valide
-  if (!url.includes('supabase.co')) {
-    throw new Error('URL non autorisée: doit être une URL Supabase');
-  }
-
-  const r = await fetch(url, {
+// ---------- Text extraction functions ----------
+async function fetchFileBuffer(url: string): Promise<Buffer> {
+  const response = await fetch(url, {
     headers: {
-      'User-Agent': 'TruthTalent-Parser/1.0'
+      'User-Agent': 'TruthTalent-Parser/2.0'
     }
   });
   
-  if (!r.ok) {
-    console.error("❌ Erreur téléchargement:", r.status, r.statusText);
-    
-    // Gestion spécifique des erreurs Supabase
-    if (r.status === 400) {
-      throw new Error('URL invalide ou fichier non trouvé dans Supabase Storage');
-    }
-    if (r.status === 403) {
-      throw new Error('Accès refusé - vérifiez les permissions du bucket');
-    }
-    if (r.status === 404) {
-      throw new Error('Fichier non trouvé dans Supabase Storage');
-    }
-    
-    throw new Error(`Download failed: ${r.status} ${r.statusText}`);
+  if (!response.ok) {
+    throw new Error(`Échec du téléchargement: ${response.status} ${response.statusText}`);
   }
-
-  const buf = await r.arrayBuffer();
-  console.log("✅ Téléchargement réussi, taille:", buf.byteLength, "bytes");
-  return Buffer.from(buf);
+  
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
 }
 
-async function bufferToText(fileName: string, buf: Buffer) {
-  const ext = fileName.toLowerCase().split('.').pop();
-  console.log("📄 Extraction texte, extension:", ext);
-  
-  if (ext === "pdf") {
-    try {
-      const data = await pdfParse(buf);
-      console.log("✅ PDF parsé, texte longueur:", data.text?.length || 0);
-      return data.text || "";
-    } catch (error) {
-      console.error("❌ Erreur parsing PDF:", error);
-      throw new Error('Erreur lors de l\'extraction du PDF');
-    }
-  }
-  
-  if (ext === "docx") {
-    try {
-      const res = await mammoth.extractRawText({ buffer: buf });
-      console.log("✅ DOCX parsé, texte longueur:", res.value?.length || 0);
-      return res.value || "";
-    } catch (error) {
-      console.error("❌ Erreur parsing DOCX:", error);
-      throw new Error('Erreur lors de l\'extraction du DOCX');
-    }
-  }
-  
-  // Pour les autres types, essayer de lire comme texte
+async function extractTextFromPDF(buffer: Buffer): Promise<string> {
   try {
-    const text = buf.toString("utf8");
-    console.log("✅ Texte brut, longueur:", text.length);
-    return text;
+    const data = await pdfParse(buffer);
+    return data.text || '';
   } catch (error) {
-    throw new Error(`Format non supporté: ${ext}`);
+    console.error('Erreur PDF parsing:', error);
+    throw new Error('Impossible de parser le PDF');
   }
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  console.log("🔍 API Parse called - Method:", req.method);
+async function extractTextFromDocx(buffer: Buffer): Promise<string> {
+  try {
+    const result = await mammoth.extractRawText({ buffer });
+    return result.value || '';
+  } catch (error) {
+    console.error('Erreur DOCX parsing:', error);
+    throw new Error('Impossible de parser le document Word');
+  }
+}
+
+async function extractTextFromImage(buffer: Buffer): Promise<string> {
+  let worker: Worker | null = null;
   
+  try {
+    console.log('Initialisation OCR...');
+    worker = await createWorker('fra+eng');
+    
+    const { data: { text } } = await worker.recognize(buffer);
+    return text || '';
+  } catch (error) {
+    console.error('Erreur OCR:', error);
+    throw new Error('Échec de l\'OCR sur l\'image');
+  } finally {
+    if (worker) {
+      await worker.terminate();
+    }
+  }
+}
+
+async function extractTextFromBuffer(fileName: string, buffer: Buffer): Promise<string> {
+  const extension = fileName.toLowerCase().split('.').pop();
+  
+  switch (extension) {
+    case 'pdf':
+      return await extractTextFromPDF(buffer);
+    
+    case 'docx':
+    case 'doc':
+      return await extractTextFromDocx(buffer);
+    
+    case 'png':
+    case 'jpg':
+    case 'jpeg':
+      return await extractTextFromImage(buffer);
+    
+    default:
+      // Essayer comme texte brut
+      try {
+        return buffer.toString('utf-8');
+      } catch {
+        throw new Error(`Format non supporté: ${extension}`);
+      }
+  }
+}
+
+// ---------- Main analysis function ----------
+async function analyzeText(text: string, fileName: string): Promise<ParsedData> {
+  const cleanText = text.replace(/\s+/g, ' ').trim();
+  
+  const { nom, prenom } = splitName(cleanText);
+  const emailMatches = cleanText.match(EMAIL_REGEX);
+  const phoneMatches = cleanText.match(PHONE_REGEX);
+  const urlMatches = cleanText.match(URL_REGEX);
+  
+  const email = emailMatches ? emailMatches[0] : null;
+  const telephone = phoneMatches ? phoneMatches[0].replace(/\s/g, '') : null;
+  const links = unique(urlMatches || []);
+  const linkedin = extractLinkedIn(cleanText);
+  
+  // Compétences et métiers
+  const competencesDict = [
+    'javascript', 'typescript', 'react', 'node', 'python', 'java', 'c#', 'php',
+    'sql', 'mysql', 'postgresql', 'mongodb', 'docker', 'kubernetes', 'aws', 'azure',
+    'git', 'github', 'gitlab', 'html', 'css', 'sass', 'vue', 'angular', 'express',
+    'nestjs', 'spring', 'laravel', 'symfony'
+  ];
+  
+  const metiersDict = [
+    'développeur', 'ingénieur', 'data scientist', 'devops', 'fullstack', 'frontend',
+    'backend', 'software engineer', 'architecte', 'chef de projet', 'product manager',
+    'consultant', 'analyste', 'designer'
+  ];
+  
+  const competences = extractCompetencesByDict(cleanText, competencesDict);
+  const metiers = extractCompetencesByDict(cleanText, metiersDict);
+  
+  // Autres données
+  const experiences = extractExperiences(cleanText);
+  const formations = extractFormations(cleanText);
+  const niveau = extractNiveauFromFormations(formations);
+  const langues = extractLangues(cleanText);
+  
+  // Déterminer le poste et entreprise
+  let poste = null;
+  let entreprise = null;
+  
+  // Chercher dans les premières lignes
+  const firstLines = cleanText.split('\n').slice(0, 5).join(' ');
+  const posteMatch = firstLines.match(/(développeur|ingénieur|consultant|manager)\s+([a-z]+)/i);
+  const entrepriseMatch = firstLines.match(/(chez|at|@)\s+([A-Z][a-zA-Z\s&]+)/i);
+  
+  if (posteMatch) poste = posteMatch[0];
+  if (entrepriseMatch && entrepriseMatch[2]) entreprise = entrepriseMatch[2].trim();
+  
+  // Profil par défaut
+  let profil = 'Candidat';
+  if (metiers.length > 0) {
+    profil = metiers[0].charAt(0).toUpperCase() + metiers[0].slice(1);
+  }
+  
+  return {
+    fichier: fileName,
+    nom,
+    prenom,
+    email,
+    telephone,
+    adresse: null, // À améliorer si nécessaire
+    poste,
+    entreprise,
+    profil,
+    linkedin,
+    competences: competences.slice(0, 15),
+    metiers: metiers.slice(0, 5),
+    links: links.slice(0, 10),
+    experiences: experiences.slice(0, 10),
+    formations: formations.slice(0, 5),
+    niveau,
+    langues: langues.slice(0, 5),
+    raw_text: cleanText.substring(0, 2000),
+    extraction_date: new Date().toISOString(),
+    file_type: fileName.split('.').pop()?.toLowerCase()
+  };
+}
+
+// ---------- API Handler ----------
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Gestion CORS
   if (req.method === 'OPTIONS') {
-    console.log("🔄 Préflight CORS");
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS, GET');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, apikey, x-client-info');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     return res.status(200).end();
   }
-
-  // Seulement POST autorisé
+  
   if (req.method !== 'POST') {
     res.setHeader('Access-Control-Allow-Origin', '*');
     return res.status(405).json({ error: 'Method not allowed' });
   }
-
+  
   try {
-    const { file_url, file_name } = req.body as { file_url: string; file_name: string };
-    console.log("📦 Request body:", { 
-      file_url: file_url?.substring(0, 100) + '...', 
-      file_name 
-    });
-
+    console.log('📥 Requête reçue pour parse API');
+    
+    const { file_url, file_name } = req.body;
+    
     if (!file_url || !file_name) {
-      console.log("❌ Missing parameters");
       res.setHeader('Access-Control-Allow-Origin', '*');
-      return res.status(400).json({ error: "file_url and file_name required" });
+      return res.status(400).json({ 
+        error: 'Paramètres manquants',
+        details: 'file_url et file_name sont requis'
+      });
     }
-
-    console.log("⬇️ Downloading file...");
-    const buf = await fetchArrayBuffer(file_url);
-
-    if (buf.length === 0) {
-      throw new Error("Fichier vide ou corrompu");
+    
+    // Vérifier le format du fichier
+    const extension = file_name.toLowerCase().split('.').pop();
+    const supportedFormats = ['pdf', 'doc', 'docx', 'png', 'jpg', 'jpeg'];
+    
+    if (!extension || !supportedFormats.includes(extension)) {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      return res.status(400).json({ 
+        error: 'Format non supporté',
+        supported_formats: supportedFormats,
+        received_format: extension
+      });
     }
-
-    console.log("🔤 Extracting text...");
-    const text = await bufferToText(file_name, buf);
-    console.log("✅ Text extracted, length:", text.length);
-
-    if (!text || text.length < 10) {
-      console.log("❌ No text extracted");
-      throw new Error("No text could be extracted from the file");
+    
+    // Télécharger le fichier
+    console.log(`⬇️  Téléchargement de ${file_name}...`);
+    const buffer = await fetchFileBuffer(file_url);
+    
+    if (buffer.length === 0) {
+      throw new Error('Fichier vide');
     }
-
-    // Extraction des données
-    const { nom, prenom } = splitName(text);
-    const email = (text.match(emailRe) ?? [null])[0];
-    const telephone = (text.match(phoneRe) ?? [null])[0]?.replace(/\s+/g, '') ?? null;
-    const links = unique(text.match(urlRe) ?? []);
-    const linkedin = extractLinkedIn(text);
-    const competences = extractCompetencesByDict(text, competencesDict);
-    const metiers = extractCompetencesByDict(text, metiersDict);
-    const experiences = extractExperiences(text);
-    const formations = extractFormations(text); // UNE SEULE FONCTION
-    const niveau = extractNiveauFromFormations(formations);
-    const langues = extractLangues(text);
-
-    const payload = {
-      fichier: file_name,
-      nom, 
-      prenom, 
-      email, 
-      telephone, 
-      adresse: null,
-      poste: null, 
-      entreprise: null, 
-      profil: profilsDict[0] ?? null,
-      linkedin,
-      competences, 
-      metiers, 
-      links,
-      experiences, 
-      formations,
-      niveau,
-      langues,
-      raw_text: text.substring(0, 1000)
-    };
-
-    console.log("✅ Analysis completed:", { 
-      name: `${prenom} ${nom}`, 
-      email, 
-      skills: competences.length,
-      niveau: niveau || 'Non détecté',
-      formations: formations.length
+    
+    // Extraire le texte
+    console.log(`🔤 Extraction du texte depuis ${extension}...`);
+    const text = await extractTextFromBuffer(file_name, buffer);
+    
+    if (!text || text.trim().length < 10) {
+      throw new Error('Texte insuffisant extrait du fichier');
+    }
+    
+    // Analyser le texte
+    console.log('🧠 Analyse du texte...');
+    const parsedData = await analyzeText(text, file_name);
+    
+    // Réponse réussie
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    return res.status(200).json({
+      ok: true,
+      data: parsedData,
+      metadata: {
+        text_length: text.length,
+        extraction_time: new Date().toISOString(),
+        file_format: extension
+      }
     });
-
-    // Réponse avec CORS
+    
+  } catch (error: any) {
+    console.error('❌ Erreur API Parse:', error.message);
+    
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS, GET');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, apikey, x-client-info');
-    
-    res.json({ ok: true, data: payload });
-
-  } catch (e: any) {
-    console.error("💥 API Error:", e);
-    
-    // Réponse d'erreur avec CORS
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS, GET');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, apikey, x-client-info');
-    
-    res.status(500).json({ 
-      ok: false, 
-      error: e.message,
-      stack: process.env.NODE_ENV === 'development' ? e.stack : undefined
+    return res.status(500).json({
+      ok: false,
+      error: error.message || 'Erreur interne du serveur',
+      timestamp: new Date().toISOString()
     });
   }
 }
+
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '10mb', // Augmenter la limite pour les fichiers
+    },
+    responseLimit: false,
+  },
+};

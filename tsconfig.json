@@ -4,9 +4,14 @@
     "module": "ESNext",
     "lib": [
       "DOM",
+      "DOM.Iterable",
       "ESNext"
     ],
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
     "strict": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
