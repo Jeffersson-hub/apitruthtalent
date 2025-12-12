@@ -1,4 +1,3 @@
-import { Resumeparser } from '../types/affinda';
 
 export class LocalAffindaService {
   

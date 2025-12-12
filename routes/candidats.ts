@@ -4,7 +4,7 @@ import { supabase } from "../utils/supabase";
 
 const router = Router();
 
-router.get("/", async (req, res) => {
+router.get("/", async (_req, res) => {
   try {
     const { data, error } = await supabase.from("candidats").select("*").order("created_at", { ascending: false });
     if (error) throw error;

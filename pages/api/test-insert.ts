@@ -9,7 +9,7 @@ const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY as string;
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(_req: NextApiRequest, res: NextApiResponse) {
   try {
     const { data, error } = await supabase
       .from("candidats")

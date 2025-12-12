@@ -2,7 +2,6 @@
 // 
 import { readFile } from "fs/promises";
 import path from "path";
-import { fileURLToPath } from "url";
 import { supabase } from "../utils/supabase";
 
 const __dirname = path.resolve();

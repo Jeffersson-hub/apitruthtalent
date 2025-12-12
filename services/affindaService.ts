@@ -1,5 +1,5 @@
 // services/affindaService.ts
-import { Candidat } from "../types/candidats";
+import Candidat from "../types/candidats";
 
 export class AffindaService {
   private apiKey: string;
@@ -127,6 +127,10 @@ export class AffindaService {
   private mapAffindaToCandidat(affindaData: any, filename: string, cvUrl: string): Candidat {
     const data = affindaData.data;
     
+    // Récupérer les postes
+    const postesArray = this.extractPostes(data);
+    const premierPoste = postesArray.length > 0 ? postesArray[0] : null;
+    
     return {
       fichier: filename,
       cv_url: cvUrl,
@@ -141,7 +145,8 @@ export class AffindaService {
       formations: this.extractFormations(data),
       experiences: this.extractExperiences(data),
       langues: this.extractLangues(data),
-      postes: this.extractPostes(data),
+      poste: premierPoste,  // ⬅️ UN SEUL poste (string)
+      postes: postesArray,  // ⬅️ TOUS les postes (string[]) - optionnel
       profil: data.summary || null,
       entreprise: this.extractCurrentCompany(data),
       niveau: this.extractEducationLevel(data),
@@ -276,3 +281,4 @@ export class AffindaService {
     return null;
   }
 }
+

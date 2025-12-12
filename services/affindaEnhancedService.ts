@@ -78,7 +78,7 @@ export class AffindaEnhancedService {
   /**
    * Extraire les données du CV (adapté du code Python)
    */
-  private extractCandidateData(resume: any, filename: string, fileUrl: string): any {
+  private extractCandidateData(resume: any, filename: string, _fileUrl: string): any {
     // Nom et prénom
     let nom: string | null = null;
     let prenom: string | null = null;

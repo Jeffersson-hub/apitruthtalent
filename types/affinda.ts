@@ -60,3 +60,39 @@ export interface Resumeparser {
   }>;
   summary?: string;
 }
+
+// types/affinda.ts - Interface spécifique
+export interface AffindaCandidat {
+  fichier: string;
+  cv_url?: string;
+  nom: string | null;
+  prenom: string | null;
+  email: string | null;
+  telephone: string | null;
+  adresse: string | null;
+  linkedin: string | null;
+  competences: string[];
+  metiers: string[];
+  formations: any[];
+  experiences: any[];
+  langues: any[];
+  postes?: string[];
+  profil: string | null;
+  entreprise: string | null;
+  niveau: string | null;
+  date_analyse?: string;
+  source_analyse?: string;
+  affinda_doc_id?: string;
+}
+
+// types/candidats.ts - Interface principale
+export default interface Candidat {
+  id?: string;
+  nom: string | null;
+  prenom: string | null;
+  email: string | null;
+  telephone: string | null;
+  fichier: string;
+  competences: string[];
+  // ... autres champs de base
+}

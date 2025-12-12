@@ -42,7 +42,7 @@ router.get("/", async (req, res) => {
 });
 
 // Statistiques des CVs
-router.get("/stats", async (req, res) => {
+router.get("/stats", async (_req, res) => {
   try {
     const stats = await cvLister.getCVStats();
 
