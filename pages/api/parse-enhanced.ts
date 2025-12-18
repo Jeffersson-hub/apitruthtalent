@@ -1,6 +1,8 @@
+// pages/api/parse-enhanced.ts - MODIFICATION
 import { NextApiRequest, NextApiResponse } from 'next';
 import { LocalAffindaService } from '../../services/localAffindaService';
 import { getFileFromStorage } from '../../services/storage';
+import { calculateTotalExperience } from '../../utils/experience-calculator'; // ✅ Déjà présent
 
 const localAffindaService = new LocalAffindaService();
 
@@ -36,7 +38,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       `https://cpdokjsyxmohubgvxift.supabase.co/storage/v1/object/public/truthtalent/${file_path}`
     );
 
-    // 3. Insérer dans Supabase
+    // 3. ✅ AJOUTER LE CALCUL D'EXPÉRIENCE
+    const annees_experience = calculateTotalExperience(candidateData.experiences || []);
+    
+    // 4. Ajouter le champ calculé aux données
+    const candidateDataWithExperience = {
+      ...candidateData,
+      annees_experience: annees_experience, // ✅ NOUVEAU CHAMP
+      derniere_maj_experience: new Date().toISOString()
+    };
+
+    console.log(`📊 Expérience calculée: ${annees_experience} ans pour ${candidateData.prenom} ${candidateData.nom}`);
+
+    // 5. Insérer dans Supabase
     const { createClient } = require('@supabase/supabase-js');
     const supabase = createClient(
       process.env.SUPABASE_URL,
@@ -45,7 +59,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const { data, error } = await supabase
       .from('candidats')
-      .insert(candidateData)
+      .insert(candidateDataWithExperience) // ✅ Insérer avec expérience
       .select()
       .single();
 
@@ -56,7 +70,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         
         const { data: updatedData, error: updateError } = await supabase
           .from('candidats')
-          .update(candidateData)
+          .update(candidateDataWithExperience) // ✅ Mettre à jour avec expérience
           .eq('email', candidateData.email)
           .select()
           .single();
@@ -66,6 +80,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(200).json({
           success: true,
           candidat: updatedData,
+          annees_experience: annees_experience, // ✅ Inclure dans la réponse
           message: 'CV analysé et candidat mis à jour'
         });
       }
@@ -76,10 +91,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.status(200).json({
       success: true,
       candidat: data,
+      annees_experience: annees_experience, // ✅ Inclure dans la réponse
       message: 'CV analysé localement avec succès'
     });
 
-  } catch (error: any) { // Correction: spécifier le type
+  } catch (error: any) {
     console.error('❌ Erreur analyse locale:', error);
     
     res.setHeader('Access-Control-Allow-Origin', '*');

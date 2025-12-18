@@ -1,0 +1,2073 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Candidats - Truth Talent</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .candidats-container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            color: #2c3e50;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #7f8c8d;
+            font-size: 1.1em;
+        }
+
+        .back-btn {
+            background: #6c757d;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .back-btn:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+        }
+
+        .selection-actions {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+            margin-bottom: 25px;
+            display: none;
+        }
+
+        .selection-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .selection-count {
+            font-weight: 600;
+            color: #2c3e50;
+            font-size: 1.1em;
+        }
+
+        .selection-buttons {
+            display: flex;
+            gap: 15px;
+        }
+
+        .selection-btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .selection-btn.validate {
+            background: #28a745;
+            color: white;
+        }
+
+        .selection-btn.clear {
+            background: #6c757d;
+            color: white;
+        }
+
+        .selection-btn:hover {
+            transform: translateY(-2px);
+        }
+
+        #filters {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+            margin-bottom: 25px;
+        }
+
+        .filters-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            align-items: end;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .filter-group label {
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #2c3e50;
+            font-size: 1em;
+        }
+
+        .filter-group select {
+            padding: 12px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 1em;
+            transition: border-color 0.3s ease;
+            background: white;
+        }
+
+        .filter-group select:focus {
+            border-color: #667eea;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        #resetFilters {
+            background: #ff6b6b;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            font-size: 1em;
+        }
+
+        #resetFilters:hover {
+            background: #ff5252;
+            transform: translateY(-2px);
+        }
+
+        #candidats {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+
+        .candidates-stats {
+            background: #e8f5e8;
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+            border-left: 4px solid #28a745;
+            font-weight: 600;
+            color: #155724;
+        }
+
+        .candidates-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+            gap: 25px;
+        }
+
+        .candidate-card {
+            border: 1px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 25px;
+            background: white;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            transition: transform 0.2s, box-shadow 0.2s;
+            position: relative;
+        }
+
+        .candidate-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+        }
+
+        .candidate-card.selected {
+            border: 2px solid #28a745;
+            background: #f8fff9;
+        }
+
+        .select-candidate {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .select-candidate:checked {
+            background: #28a745;
+            border-color: #28a745;
+        }
+
+        .select-candidate:checked::after {
+            content: '✓';
+            color: white;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .candidate-header {
+            margin-bottom: 20px;
+            border-bottom: 2px solid #f8f9fa;
+            padding-bottom: 15px;
+            padding-right: 30px;
+        }
+
+        .candidate-header h3 {
+            margin: 0 0 15px 0;
+            color: #2c3e50;
+            font-size: 1.4em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .candidate-contact {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .contact-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: #555;
+            font-size: 1em;
+        }
+
+        .contact-actions {
+            display: flex;
+            gap: 8px;
+            margin-left: auto;
+        }
+
+        .contact-btn {
+            padding: 4px 8px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8em;
+            transition: all 0.3s ease;
+        }
+
+        .contact-btn.call {
+            background: #28a745;
+            color: white;
+        }
+
+        .contact-btn.email {
+            background: #17a2b8;
+            color: white;
+        }
+
+        .contact-btn:hover {
+            transform: translateY(-1px);
+        }
+
+        .contact-item i {
+            width: 20px;
+            text-align: center;
+            font-size: 1.1em;
+        }
+
+        .candidate-info {
+            margin: 15px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .info-item:last-child {
+            margin-bottom: 0;
+            padding-bottom: 0;
+            border-bottom: none;
+        }
+
+        .info-label {
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .info-value {
+            color: #6c757d;
+        }
+
+        .cv-section {
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .cv-btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            background: #007bff;
+            color: white;
+            width: 100%;
+        }
+
+        .cv-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            background: #0056b3;
+        }
+
+        .cv-btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .cv-info {
+            text-align: center;
+            font-size: 0.85em;
+            color: #6c757d;
+            margin-top: 5px;
+        }
+
+        .rdv-section {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 2px solid #f8f9fa;
+        }
+
+        .rdv-toggle {
+            background: #ff6b35;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: 600;
+            width: 100%;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .rdv-toggle:hover {
+            background: #e55a2b;
+            transform: translateY(-2px);
+        }
+
+        .rdv-tools {
+            display: none;
+            margin-top: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .rdv-tools.show {
+            display: block;
+        }
+
+        .rdv-tools h4 {
+            margin: 0 0 15px 0;
+            color: #495057;
+            font-size: 1.1em;
+            text-align: center;
+        }
+
+        .tools-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
+        }
+
+        .tool-btn {
+            padding: 12px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            justify-content: center;
+        }
+
+        .tool-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+
+        .tool-btn.teams {
+            background: #6264a7;
+            color: white;
+        }
+
+        .tool-btn.meet {
+            background: #00897b;
+            color: white;
+        }
+
+        .tool-btn.outlook {
+            background: #0078d4;
+            color: white;
+        }
+
+        .no-candidates {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+
+        .no-candidates i {
+            font-size: 4em;
+            margin-bottom: 20px;
+            display: block;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .loading i {
+            font-size: 3em;
+            margin-bottom: 15px;
+            display: block;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .modal-content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            max-width: 500px;
+            width: 90%;
+        }
+
+        .modal h3 {
+            margin-bottom: 15px;
+            color: #2c3e50;
+        }
+
+        .modal p {
+            margin-bottom: 20px;
+            color: #6c757d;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        .modal-btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .modal-btn.confirm {
+            background: #28a745;
+            color: white;
+        }
+
+        .modal-btn.cancel {
+            background: #6c757d;
+            color: white;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                text-align: center;
+                gap: 15px;
+            }
+            
+            .filters-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .candidates-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .candidate-card {
+                padding: 20px;
+            }
+            
+            .selection-buttons {
+                flex-direction: column;
+            }
+            
+            .contact-actions {
+                flex-direction: column;
+            }
+        }
+        
+        /* Styles pour la jauge d'expérience */
+        .experience-item {
+            display: block !important;
+        }
+
+        .experience-gauge-container {
+            width: 100%;
+        }
+
+        .experience-gauge {
+            height: 12px;
+            background: #e9ecef;
+            border-radius: 6px;
+            margin: 8px 0;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .experience-gauge-fill {
+            height: 100%;
+            border-radius: 6px;
+            background: linear-gradient(90deg, #3498db, #2ecc71);
+            width: 0%;
+            transition: width 1s ease-in-out;
+        }
+
+        .experience-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            color: #6c757d;
+        }
+
+        .experience-years {
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .experience-level {
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+        }
+
+        .experience-level.junior {
+            background: #3498db;
+            color: white;
+        }
+
+        .experience-level.confirme {
+            background: #2ecc71;
+            color: white;
+        }
+
+        .experience-level.senior {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .experience-level.expert {
+            background: #9b59b6;
+            color: white;
+        }
+        
+        /* Styles pour la modale de refus */
+        .refus-modal textarea {
+            width: 100%;
+            height: 120px;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            margin: 15px 0;
+            font-family: inherit;
+            font-size: 14px;
+            resize: vertical;
+        }
+    </style>
+</head>
+<body>
+    <div class="candidats-container">
+        <!-- Header -->
+        <div class="header">
+            <div>
+                <h1>👥 Candidats Truth Talent</h1>
+                <p>Consultez, sélectionnez et contactez vos candidats</p>
+            </div>
+            <a href="dashboard/" class="back-btn">
+                ⬅️ Retour au Dashboard
+            </a>
+        </div>
+
+        <!-- Sélection Actions -->
+        <div class="selection-actions" id="selectionActions">
+            <div class="selection-info">
+                <div class="selection-count" id="selectionCount">0 candidat(s) sélectionné(s)</div>
+                <div class="selection-buttons">
+                    <button class="selection-btn validate" onclick="envoyerCandidatsParEmail()">
+                        📧 Valider les candidats sélectionnés
+                    </button>
+                    <button class="selection-btn clear" onclick="clearSelection()">
+                        ❌ Effacer la sélection
+                    </button>
+                </div>
+            </div>
+            <div style="font-size: 0.9em; color: #6c757d;">
+                Les candidats sélectionnés seront envoyés par email à votre adresse. Les autres recevront un refus.
+            </div>
+        </div>
+
+        <!-- Filtres -->
+        <div id="filters">
+            <div class="filters-grid">
+                <div class="filter-group">
+                    <label for="niveau">🎓 Niveau :</label>
+                    <select id="niveau">
+                        <option value="">-- Tous les niveaux --</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="metiers">💼 Métier :</label>
+                    <select id="metiers">
+                        <option value="">-- Tous les métiers --</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="competence">🛠️ Compétence :</label>
+                    <select id="competence">
+                        <option value="">-- Toutes les compétences --</option>
+                    </select>
+                </div>
+                
+                <button id="resetFilters">
+                    🔄 Réinitialiser
+                </button>
+            </div>
+        </div>
+
+        <!-- Candidats -->
+        <div id="candidats">
+            <div class="loading" id="loading">
+                <i>⏳</i>
+                <div style="font-size: 18px; margin-bottom: 10px;">Chargement des candidats...</div>
+                <div style="font-size: 14px;">Veuillez patienter</div>
+            </div>
+            
+            <div id="candidatesContent" style="display: none;">
+                <div class="candidates-stats" id="candidatesStats">
+                    Chargement...
+                </div>
+                <div class="candidates-grid" id="candidatesGrid">
+                    <!-- Les candidats seront affichés ici par JavaScript -->
+                </div>
+            </div>
+
+            <div class="no-candidates" id="noCandidates" style="display: none;">
+                <i>🔍</i>
+                <h3>Aucun candidat trouvé</h3>
+                <p>Aucun candidat ne correspond aux critères sélectionnés.</p>
+                <button onclick="resetFilters()" style="margin-top: 20px; padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer;">
+                    Voir tous les candidats
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de confirmation -->
+    <div class="modal" id="confirmationModal">
+        <div class="modal-content">
+            <h3>📧 Confirmer la validation</h3>
+            <p id="modalMessage">Êtes-vous sûr de vouloir valider les candidats sélectionnés ?</p>
+            <div class="modal-buttons">
+                <button class="modal-btn confirm" onclick="confirmerValidation()">Confirmer</button>
+                <button class="modal-btn cancel" onclick="closeModal()">Annuler</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal pour le message de refus -->
+    <div class="modal" id="refusModal">
+        <div class="modal-content refus-modal">
+            <h3>✉️ Message de refus aux candidats non sélectionnés</h3>
+            <p>Vous pouvez personnaliser le message qui sera envoyé aux candidats non retenus :</p>
+            <textarea id="refusMessage" placeholder="Bonjour [NOM],
+
+Nous vous remercions pour votre candidature qui a retenu toute notre attention.
+
+Après examen approfondi de votre profil, nous regrettons de vous informer que nous ne pourrons pas donner suite à votre demande pour ce poste.
+
+Nous conservons votre candidature dans notre base de données et ne manquerons pas de vous contacter si une opportunité correspondant à votre profil se présente.
+
+Nous vous souhaitons beaucoup de succès dans vos recherches futures.
+
+Cordialement,
+L'équipe de recrutement"></textarea>
+            <div class="modal-buttons">
+                <button class="modal-btn confirm" onclick="envoyerRefus()">Envoyer les refus</button>
+                <button class="modal-btn cancel" onclick="closeRefusModal()">Annuler</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Modal de succès -->
+<div class="modal" id="successModal">
+    <div class="modal-content" style="text-align: center;">
+        <div style="font-size: 60px; margin-bottom: 20px;">🎉</div>
+        <h3 style="color: #28a745;">Validation réussie !</h3>
+        <div id="successMessage" style="margin: 20px 0; line-height: 1.6;"></div>
+        <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0;">
+            <p style="margin: 0; font-size: 14px; color: #6c757d;">
+                <strong>Prochaines étapes :</strong><br>
+                1. Vérifiez votre boîte mail<br>
+                2. Contactez les candidats sélectionnés<br>
+                3. Planifiez les entretiens
+            </p>
+        </div>
+        <div class="modal-buttons" style="justify-content: center;">
+            <button class="modal-btn confirm" onclick="closeSuccessModal()">
+                👍 Compris
+            </button>
+            <button class="modal-btn" onclick="window.open('https://mail.google.com', '_blank')" 
+                    style="background: #ea4335; color: white;">
+                📧 Ouvrir Gmail
+            </button>
+        </div>
+    </div>
+</div>
+
+    <script>
+        // Configuration
+        const CANDIDATS_API_URL = "https://cpdokjsyxmohubgvxift.supabase.co/functions/v1/get-candidats";
+        const SEND_EMAIL_API_URL = "https://cpdokjsyxmohubgvxift.supabase.co/functions/v1/send-candidates-email";
+        const AUTH_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNwZG9ranN5eG1vaHViZ3Z4aWZ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI2MzI1MzQsImV4cCI6MjA2ODIwODUzNH0.R_E0t1WLWby-ZeqohAL8HUumto5uYPTJacnqij-JVaM";
+
+        // Variables globales
+        let allCandidats = [];
+        let filters = { niveau: '', metiers: '', competence: '' };
+        let selectedCandidates = new Set();
+        let allCVs = [];
+
+        // Initialisation
+        document.addEventListener('DOMContentLoaded', function() {
+            initializePage();
+        });
+
+        async function initializePage() {
+            await loadCVsData();
+            await loadCandidatesData();
+            setupEventListeners();
+        }
+
+        async function loadCVsData() {
+            try {
+                console.log("🔄 Chargement des CVs...");
+
+                const response = await fetch(
+                    "https://cpdokjsyxmohubgvxift.supabase.co/functions/v1/supabase-cvs-list-pdfs?bucket=truthtalent&prefix=cvs/&signed=false",
+                    {
+                        headers: {
+                            "Authorization": `Bearer ${AUTH_TOKEN}`,
+                            "apikey": AUTH_TOKEN
+                        }
+                    }
+                );
+
+                if (!response.ok) throw new Error("Erreur HTTP " + response.status);
+
+                const data = await response.json();
+                allCVs = Array.isArray(data) ? data : [];
+
+                console.log(`✅ ${allCVs.length} CVs chargés:`, allCVs.map(cv => cv.filename));
+
+            } catch (error) {
+                console.error('❌ Erreur chargement CVs:', error);
+                allCVs = [];
+            }
+        }
+
+        async function loadCandidatesData() {
+            try {
+                showLoading();
+                
+                const response = await fetch(CANDIDATS_API_URL, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${AUTH_TOKEN}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.ok) {
+                    const candidates = await response.json();
+                    allCandidats = candidates;
+                    
+                    // Peupler les filtres depuis les données réelles
+                    populateFiltersFromCandidates();
+                    
+                    displayCandidates(allCandidats);
+                } else {
+                    throw new Error('Erreur lors du chargement des candidats');
+                }
+            } catch (error) {
+                console.error('Erreur chargement candidats:', error);
+                showError('Erreur lors du chargement des candidats');
+            }
+        }
+        
+        async function envoyerRefus() {
+            const refusMessage = document.getElementById('refusMessage').value;
+
+            if (!refusMessage.trim()) {
+                alert('Veuillez saisir un message de refus.');
+                return;
+            }
+
+            // Afficher un indicateur de chargement
+            const refusBtn = document.querySelector('#refusModal .modal-btn.confirm');
+            const originalText = refusBtn.textContent;
+            refusBtn.textContent = '⏳ Envoi en cours...';
+            refusBtn.disabled = true;
+
+            try {
+                // Récupérer les candidats sélectionnés et non sélectionnés
+                const selectedCandidatesData = allCandidats.filter(c => selectedCandidates.has(c.id));
+                const rejectedCandidatesData = allCandidats.filter(c => !selectedCandidates.has(c.id) && c.email && c.email !== 'N/A');
+
+                // Préparer les données pour l'API
+                const emailData = {
+                    selectedCandidates: selectedCandidatesData,
+                    rejectedCandidates: rejectedCandidatesData,
+                    refusalMessage: refusMessage
+                };
+
+                console.log('📤 Préparation de l\'envoi:', {
+                    selected: selectedCandidatesData.length,
+                    rejected: rejectedCandidatesData.length
+                });
+
+                // Option 1: Utiliser l'API WordPress AJAX
+                const ajaxData = new FormData();
+                ajaxData.append('action', 'send_selected_candidates');
+                ajaxData.append('security', '<?php echo wp_create_nonce("candidates_selection_nonce"); ?>');
+                ajaxData.append('selectedCandidates', JSON.stringify(selectedCandidatesData));
+                ajaxData.append('rejectedCandidates', JSON.stringify(rejectedCandidatesData));
+                ajaxData.append('refusalMessage', refusMessage);
+
+                const response = await fetch('/wp-admin/admin-ajax.php', {
+                    method: 'POST',
+                    body: ajaxData
+                });
+
+                // Option 2: Utiliser l'API REST WordPress (si AJAX ne fonctionne pas)
+                /* 
+                const response = await fetch('/wp-json/truthtalent/v1/send-candidates-email', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-WP-Nonce': '<?php echo wp_create_nonce("wp_rest"); ?>'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify(emailData)
+                });
+                */
+
+                // Option 3: Utiliser Supabase Edge Function (alternative)
+                /*
+                const response = await fetch('https://cpdokjsyxmohubgvxift.supabase.co/functions/v1/send-candidates-email', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${AUTH_TOKEN}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(emailData)
+                });
+                */
+
+                if (response.ok) {
+                    const result = await response.json();
+
+                    if (result.success || result.data) {
+                        // Succès
+                        const successMessage = `
+                            ✅ Validation terminée avec succès !
+
+                            📩 <strong>${selectedCandidatesData.length} candidat(s)</strong> envoyé(s) à votre email
+                            ✉️ <strong>${rejectedCandidatesData.length} email(s) de refus</strong> envoyé(s)
+
+                            Vérifiez votre boîte mail : ${result.data?.recruiter_email || 'votre adresse professionnelle'}
+                        `;
+
+                        // Afficher une notification stylée
+                        showNotification(successMessage, 'success');
+
+                        // Marquer les candidats traités
+                        markCandidatesAsProcessed(selectedCandidatesData, rejectedCandidatesData);
+
+                        // Réinitialiser la sélection
+                        setTimeout(() => {
+                            clearSelection();
+                            closeRefusModal();
+
+                            // Rafraîchir l'affichage
+                            displayCandidates(allCandidats);
+                        }, 2000);
+
+                    } else {
+                        throw new Error(result.message || 'Erreur inconnue');
+                    }
+                } else {
+                    const errorText = await response.text();
+                    console.error('❌ Erreur serveur:', response.status, errorText);
+
+                    // Fallback: Ouvrir le client mail avec les données
+                    openMailClientFallback(selectedCandidatesData, rejectedCandidatesData, refusMessage);
+                }
+
+            } catch (error) {
+                console.error('❌ Erreur:', error);
+
+                // Fallback manuel
+                const fallbackMessage = `
+                    Une erreur est survenue lors de l'envoi automatique.
+
+                    Pour envoyer manuellement :
+
+                    1. Copiez les informations des ${selectedCandidatesData.length} candidat(s) sélectionné(s)
+                    2. Envoyez-les à votre adresse email
+                    3. Envoyez le message de refus aux ${rejectedCandidatesData.length} autre(s) candidat(s)
+
+                    Souhaitez-vous ouvrir votre client mail avec les informations ?
+                `;
+
+                if (confirm(fallbackMessage)) {
+                    openMailClientFallback(selectedCandidatesData, rejectedCandidatesData, refusMessage);
+                }
+            } finally {
+                // Réactiver le bouton
+                refusBtn.textContent = originalText;
+                refusBtn.disabled = false;
+            }
+        }
+        
+       <style>
+
+</style>
+
+        // Fonction fallback pour ouvrir le client mail
+        function openMailClientFallback(selectedCandidates, rejectedCandidates, refusalMessage) {
+            // Préparer le sujet
+            const subject = encodeURIComponent(`Candidats sélectionnés - ${selectedCandidates.length} candidat(s)`);
+
+            // Préparer le corps pour les candidats sélectionnés
+            let body = "CANDIDATS SÉLECTIONNÉS :\n\n";
+
+            selectedCandidates.forEach((candidate, index) => {
+                const nomComplet = `${candidate.prenom || ''} ${candidate.nom || ''}`.trim();
+                body += `${index + 1}. ${nomComplet}\n`;
+                body += `   Email: ${candidate.email || 'Non renseigné'}\n`;
+                body += `   Téléphone: ${candidate.telephone || 'Non renseigné'}\n`;
+                body += `   Métier(s): ${formatDisplayData(candidate.metiers)}\n`;
+                body += `   Niveau: ${candidate.niveau || 'Non renseigné'}\n\n`;
+            });
+
+            body += "\n---\n\n";
+            body += "MESSAGE DE REFUS À ENVOYER AUX AUTRES CANDIDATS :\n\n";
+            body += refusalMessage;
+
+            const bodyEncoded = encodeURIComponent(body);
+
+            // Ouvrir le client mail
+            window.open(`mailto:?subject=${subject}&body=${bodyEncoded}`, '_blank');
+
+            // Afficher un message d'instructions
+            alert(`Ouvrez votre client mail et copiez-collez :
+
+        1. Les informations des candidats sélectionnés
+        2. Le message de refus pour les autres candidats
+
+        Envoyez ensuite les emails individuellement.`);
+        }
+
+        // Fonction pour afficher des notifications stylées
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                padding: 20px 25px;
+                background: ${type === 'success' ? '#d4edda' : '#f8d7da'};
+                color: ${type === 'success' ? '#155724' : '#721c24'};
+                border: 1px solid ${type === 'success' ? '#c3e6cb' : '#f5c6cb'};
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                z-index: 10000;
+                max-width: 400px;
+                font-size: 14px;
+                line-height: 1.5;
+            `;
+
+            notification.innerHTML = message;
+            document.body.appendChild(notification);
+
+            // Fermer automatiquement après 5 secondes
+            setTimeout(() => {
+                notification.style.opacity = '0';
+                notification.style.transition = 'opacity 0.5s';
+                setTimeout(() => notification.remove(), 500);
+            }, 5000);
+        }
+
+        // Fonction pour marquer les candidats comme traités
+        function markCandidatesAsProcessed(selected, rejected) {
+            // Ajouter une classe CSS aux candidats traités
+            selected.forEach(candidate => {
+                const card = document.querySelector(`.candidate-card[data-candidate-id="${candidate.id}"]`);
+                if (card) {
+                    card.style.border = '2px solid #28a745';
+                    card.style.background = '#f0fff4';
+
+                    // Ajouter un badge "Sélectionné"
+                    const badge = document.createElement('div');
+                    badge.textContent = '✅ Sélectionné';
+                    badge.style.cssText = `
+                        position: absolute;
+                        top: 10px;
+                        left: 10px;
+                        background: #28a745;
+                        color: white;
+                        padding: 3px 8px;
+                        border-radius: 12px;
+                        font-size: 11px;
+                        font-weight: bold;
+                    `;
+                    card.appendChild(badge);
+                }
+            });
+
+            rejected.forEach(candidate => {
+                const card = document.querySelector(`.candidate-card[data-candidate-id="${candidate.id}"]`);
+                if (card) {
+                    card.style.opacity = '0.6';
+                    card.style.border = '1px dashed #dc3545';
+
+                    // Ajouter un badge "Refus envoyé"
+                    const badge = document.createElement('div');
+                    badge.textContent = '✉️ Refus envoyé';
+                    badge.style.cssText = `
+                        position: absolute;
+                        top: 10px;
+                        left: 10px;
+                        background: #dc3545;
+                        color: white;
+                        padding: 3px 8px;
+                        border-radius: 12px;
+                        font-size: 11px;
+                        font-weight: bold;
+                    `;
+                    card.appendChild(badge);
+                }
+            });
+        }
+
+        // Fonction pour calculer l'expérience
+        // Remplacer la fonction existante par :
+        function calculerExperience(experiences_data) {
+            try {
+                if (!experiences_data) return 0;
+
+                // Si c'est déjà un nombre (stocké dans annees_experience)
+                if (typeof experiences_data === 'number') {
+                    return experiences_data;
+                }
+
+                // Si c'est une string contenant un nombre
+                if (!isNaN(parseFloat(experiences_data))) {
+                    return parseFloat(experiences_data);
+                }
+
+                // Si c'est un objet avec le champ annees_experience
+                if (typeof experiences_data === 'object' && experiences_data.annees_experience !== undefined) {
+                    return parseFloat(experiences_data.annees_experience) || 0;
+                }
+
+                // Si c'est un tableau JSON d'expériences
+                let experiences;
+                if (typeof experiences_data === 'string') {
+                    try {
+                        experiences = JSON.parse(experiences_data);
+                    } catch (e) {
+                        console.log('Format d\'expérience non reconnu:', experiences_data);
+                        return 0;
+                    }
+                } else {
+                    experiences = experiences_data;
+                }
+
+                if (!Array.isArray(experiences)) return 0;
+
+                let totalAnnees = 0;
+                const currentYear = new Date().getFullYear();
+
+                experiences.forEach(exp => {
+                    const debut = extraireAnnee(exp.debut);
+                    const fin = exp.fin ? extraireAnnee(exp.fin) : currentYear;
+
+                    if (debut && fin && fin >= debut) {
+                        totalAnnees += (fin - debut);
+                    }
+                });
+
+                return Math.round(totalAnnees * 10) / 10;
+            } catch (e) {
+                console.error('Erreur calcul expérience:', e, 'Données:', experiences_data);
+                return 0;
+            }
+        }
+
+        // Fonction helper pour extraire l'année
+        function extraireAnnee(dateStr) {
+            if (!dateStr) return null;
+
+            // Si c'est juste une année "2022"
+            if (/^\d{4}$/.test(dateStr.toString().trim())) {
+                const year = parseInt(dateStr, 10);
+                if (year >= 1900 && year <= new Date().getFullYear() + 5) {
+                    return year;
+                }
+            }
+
+            // Si c'est une date complète
+            const match = dateStr.toString().match(/\b(19|20)\d{2}\b/);
+            if (match) {
+                const year = parseInt(match[0], 10);
+                if (year >= 1900 && year <= new Date().getFullYear() + 5) {
+                    return year;
+                }
+            }
+
+            return null;
+        }
+
+        // Fonction pour catégoriser le niveau
+// Fonction pour catégoriser le niveau d'expérience
+function categoriserNiveau(annees) {
+    if (annees <= 2) {
+        return { 
+            niveau: 'Junior', 
+            pourcentage: Math.min((annees / 2) * 100, 100) 
+        };
+    } else if (annees <= 5) {
+        return { 
+            niveau: 'Confirmé', 
+            pourcentage: 33 + ((annees - 2) / 3) * 33 
+        };
+    } else if (annees <= 10) {
+        return { 
+            niveau: 'Senior', 
+            pourcentage: 66 + ((annees - 5) / 5) * 34 
+        };
+    } else {
+        return { 
+            niveau: 'Expert', 
+            pourcentage: 100 
+        };
+    }
+}
+
+// Fonction pour formater les données d'affichage
+function formatDisplayData(data) {
+    if (!data) return 'Non renseigné';
+    
+    const array = extractArrayFromData(data);
+    if (array.length === 0) return 'Non renseigné';
+    
+    // Limiter à 3 éléments pour l'affichage
+    const limitedArray = array.slice(0, 3);
+    let result = limitedArray.join(', ');
+    
+    // Ajouter "..." s'il y a plus d'éléments
+    if (array.length > 3) {
+        result += `... (+${array.length - 3})`;
+    }
+    
+    return result;
+}
+
+// Fonction pour extraire un tableau de données
+function extractArrayFromData(data) {
+    if (Array.isArray(data)) {
+        return data.filter(item => item && item.trim() !== '');
+    } else if (typeof data === 'string') {
+        try {
+            const parsed = JSON.parse(data);
+            if (Array.isArray(parsed)) {
+                return parsed.filter(item => item && item.toString().trim() !== '');
+            }
+            return [parsed.toString().trim()];
+        } catch (e) {
+            // Si ce n'est pas du JSON, split par virgule
+            return data.split(',')
+                .map(item => item.trim())
+                .filter(item => item !== '');
+        }
+    }
+    return [];
+}
+        // Fonction pour afficher la jauge d'expérience
+function afficherJaugeExperience(candidatId, candidatData) {
+    try {
+        const anneesExp = calculerExperience(candidatData);
+        
+        const gaugeElement = document.getElementById(`experienceGauge-${candidatId}`);
+        const yearsElement = document.getElementById(`experienceYears-${candidatId}`);
+        const levelElement = document.getElementById(`experienceLevel-${candidatId}`);
+
+        if (!gaugeElement || !yearsElement || !levelElement) {
+            console.warn(`Éléments de jauge non trouvés pour candidat ${candidatId}`);
+            return;
+        }
+
+        // Déterminer le niveau et pourcentage
+        let niveau, pourcentage;
+        if (anneesExp <= 2) {
+            niveau = 'Junior';
+            pourcentage = Math.min((anneesExp / 2) * 100, 100);
+        } else if (anneesExp <= 5) {
+            niveau = 'Confirmé';
+            pourcentage = 33 + ((anneesExp - 2) / 3) * 33;
+        } else if (anneesExp <= 10) {
+            niveau = 'Senior';
+            pourcentage = 66 + ((anneesExp - 5) / 5) * 34;
+        } else {
+            niveau = 'Expert';
+            pourcentage = 100;
+        }
+
+        // Arrondir
+        pourcentage = Math.min(Math.round(pourcentage), 100);
+
+        // Mettre à jour les textes (au cas où ils ne seraient pas déjà mis à jour)
+        yearsElement.textContent = `${anneesExp} an(s)`;
+        levelElement.textContent = niveau;
+        levelElement.className = `experience-level ${niveau.toLowerCase()}`;
+
+        // Couleurs selon le niveau
+        let couleur1, couleur2;
+        switch(niveau) {
+            case 'Junior':
+                couleur1 = '#3498db';
+                couleur2 = '#2980b9';
+                break;
+            case 'Confirmé':
+                couleur1 = '#2ecc71';
+                couleur2 = '#27ae60';
+                break;
+            case 'Senior':
+                couleur1 = '#e74c3c';
+                couleur2 = '#c0392b';
+                break;
+            case 'Expert':
+                couleur1 = '#9b59b6';
+                couleur2 = '#8e44ad';
+                break;
+            default:
+                couleur1 = '#3498db';
+                couleur2 = '#2980b9';
+        }
+
+        // S'assurer que la jauge est vide avant d'ajouter le contenu
+        gaugeElement.innerHTML = '';
+
+        // Créer la jauge avec animation
+        const gaugeFill = document.createElement('div');
+        gaugeFill.className = 'experience-gauge-fill';
+        gaugeFill.style.cssText = `
+            height: 100%;
+            border-radius: 6px;
+            background: linear-gradient(90deg, ${couleur1}, ${couleur2});
+            width: 0%;
+            transition: width 1s ease-in-out;
+        `;
+
+        // Créer les marqueurs
+        const gaugeMarkers = document.createElement('div');
+        gaugeMarkers.className = 'gauge-markers';
+        gaugeMarkers.innerHTML = `
+            <span style="position: absolute; left: 0%; transform: translateX(-50%);">0</span>
+            <span style="position: absolute; left: 33%; transform: translateX(-50%);">2</span>
+            <span style="position: absolute; left: 66%; transform: translateX(-50%);">5</span>
+            <span style="position: absolute; left: 100%; transform: translateX(-50%);">10+</span>
+        `;
+
+        // Appliquer les styles aux marqueurs
+        const markerStyle = document.createElement('style');
+        markerStyle.textContent = `
+            .gauge-markers {
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                pointer-events: none;
+            }
+            .gauge-markers span {
+                font-size: 9px;
+                color: #666;
+                margin-top: 15px;
+            }
+        `;
+        document.head.appendChild(markerStyle);
+
+        // Ajouter les éléments à la jauge
+        gaugeElement.appendChild(gaugeFill);
+        gaugeElement.appendChild(gaugeMarkers);
+
+        // Animer la jauge
+        setTimeout(() => {
+            gaugeFill.style.width = `${pourcentage}%`;
+        }, 100);
+
+    } catch (error) {
+        console.error(`Erreur lors de l'affichage de la jauge pour le candidat ${candidatId}:`, error);
+    }
+}
+
+        function populateFiltersFromCandidates() {
+            const niveauSelect = document.getElementById('niveau');
+            const metiersSelect = document.getElementById('metiers');
+            const competenceSelect = document.getElementById('competence');
+
+            // Niveaux
+            const niveaux = new Set();
+            allCandidats.forEach(c => c.niveau && niveaux.add(c.niveau));
+            niveauSelect.innerHTML = '<option value="">-- Tous les niveaux --</option>';
+            Array.from(niveaux).sort().forEach(niveau => {
+                const option = document.createElement('option');
+                option.value = niveau;
+                option.textContent = niveau;
+                niveauSelect.appendChild(option);
+            });
+
+            // Métiers
+            const metiers = new Set();
+            allCandidats.forEach(candidat => {
+                if (candidat.metiers) {
+                    let metiersArray = extractArrayFromData(candidat.metiers);
+                    metiersArray.forEach(metier => metier && metiers.add(metier.trim()));
+                }
+            });
+            metiersSelect.innerHTML = '<option value="">-- Tous les métiers --</option>';
+            Array.from(metiers).sort().forEach(metier => {
+                const option = document.createElement('option');
+                option.value = metier;
+                option.textContent = metier;
+                metiersSelect.appendChild(option);
+            });
+
+            // Compétences
+            const competences = new Set();
+            allCandidats.forEach(candidat => {
+                if (candidat.competences) {
+                    let competencesArray = extractArrayFromData(candidat.competences);
+                    competencesArray.forEach(competence => competence && competences.add(competence.trim()));
+                }
+            });
+            competenceSelect.innerHTML = '<option value="">-- Toutes les compétences --</option>';
+            Array.from(competences).sort().forEach(competence => {
+                const option = document.createElement('option');
+                option.value = competence;
+                option.textContent = competence;
+                competenceSelect.appendChild(option);
+            });
+        }
+
+        function extractArrayFromData(data) {
+            if (Array.isArray(data)) {
+                return data;
+            } else if (typeof data === 'string') {
+                try {
+                    const parsed = JSON.parse(data);
+                    return Array.isArray(parsed) ? parsed : [parsed];
+                } catch (e) {
+                    return data.split(',').map(item => item.trim());
+                }
+            }
+            return [];
+        }
+
+        function setupEventListeners() {
+            document.getElementById('niveau').addEventListener('change', function(e) {
+                filters.niveau = e.target.value;
+                applyFilters();
+            });
+
+            document.getElementById('metiers').addEventListener('change', function(e) {
+                filters.metiers = e.target.value;
+                applyFilters();
+            });
+
+            document.getElementById('competence').addEventListener('change', function(e) {
+                filters.competence = e.target.value;
+                applyFilters();
+            });
+
+            document.getElementById('resetFilters').addEventListener('click', resetFilters);
+        }
+
+        function applyFilters() {
+    console.log("🔍 Application des filtres:", filters);
+    
+    const filteredCandidates = allCandidats.filter(candidat => {
+        let passesFilter = true;
+
+        // Filtre par niveau
+        if (filters.niveau && candidat.niveau !== filters.niveau) {
+            passesFilter = false;
+        }
+        
+        // Filtre par métier
+        if (passesFilter && filters.metiers) {
+            const metiersArray = extractArrayFromData(candidat.metiers);
+            passesFilter = metiersArray.some(metier => 
+                metier && metier.toLowerCase().includes(filters.metiers.toLowerCase())
+            );
+        }
+        
+        // Filtre par compétence
+        if (passesFilter && filters.competence) {
+            const competencesArray = extractArrayFromData(candidat.competences);
+            passesFilter = competencesArray.some(competence => 
+                competence && competence.toLowerCase().includes(filters.competence.toLowerCase())
+            );
+        }
+        
+        // FILTRE PAR EXPÉRIENCE - CORRIGÉ
+        if (passesFilter && filters.minExperience > 0) {
+            // Utiliser le champ calculé ou calculer à la volée
+            const anneesExp = calculerExperience(candidat);
+            
+            console.log(`Expérience ${candidat.prenom} ${candidat.nom}:`, anneesExp);
+            
+            // Logique de filtrage
+            if (filters.minExperience === 15) {
+                passesFilter = anneesExp >= 15;
+            } else {
+                passesFilter = anneesExp >= filters.minExperience;
+            }
+        }
+        
+        return passesFilter;
+    });
+
+    console.log(`📊 Résultat filtres: ${filteredCandidates.length} candidat(s)`);
+    displayCandidates(filteredCandidates);
+}
+
+        function resetFilters() {
+            document.getElementById('niveau').value = '';
+            document.getElementById('metiers').value = '';
+            document.getElementById('competence').value = '';
+            filters = { niveau: '', metiers: '', competence: '' };
+            displayCandidates(allCandidats);
+        }
+
+        function displayCandidates(candidates) {
+    const loadingElement = document.getElementById('loading');
+    const contentElement = document.getElementById('candidatesContent');
+    const noCandidatesElement = document.getElementById('noCandidates');
+    const statsElement = document.getElementById('candidatesStats');
+    const gridElement = document.getElementById('candidatesGrid');
+
+    loadingElement.style.display = 'none';
+
+    if (candidates.length === 0) {
+        contentElement.style.display = 'none';
+        noCandidatesElement.style.display = 'block';
+        return;
+    }
+
+    contentElement.style.display = 'block';
+    noCandidatesElement.style.display = 'none';
+    statsElement.textContent = `📊 ${candidates.length} candidat(s) trouvé(s)`;
+    gridElement.innerHTML = '';
+
+    candidates.forEach(candidat => {
+        const card = document.createElement('div');
+        card.className = `candidate-card ${selectedCandidates.has(candidat.id) ? 'selected' : ''}`;
+        card.setAttribute('data-candidate-id', candidat.id);
+        
+        const nomComplet = `${candidat.prenom || ''} ${candidat.nom || ''}`.trim();
+        const hasEmail = candidat.email && candidat.email !== 'N/A';
+        const hasPhone = candidat.telephone && candidat.telephone !== 'N/A';
+        const cvUrl = findCvUrl(candidat);
+
+        // Formater l'affichage
+        const metiersDisplay = formatDisplayData(candidat.metiers);
+        const competencesDisplay = formatDisplayData(candidat.competences);
+        
+        // Calculer l'expérience
+        const anneesExp = calculerExperience(candidat);
+        const { niveau: niveauLabel } = categoriserNiveau(anneesExp);
+
+        // Préparer les données pour éviter les problèmes d'échappement
+        const candidatEmail = (candidat.email || '').replace(/'/g, "\\'");
+        const candidatTelephone = (candidat.telephone || '').replace(/'/g, "\\'");
+        const candidatNomComplet = nomComplet.replace(/'/g, "\\'");
+        const cvUrlSafe = (cvUrl || '').replace(/'/g, "\\'");
+
+        card.innerHTML = `
+            <input type="checkbox" class="select-candidate" ${selectedCandidates.has(candidat.id) ? 'checked' : ''} 
+                   onchange="toggleCandidateSelection(${candidat.id}, this.checked)"
+                   data-candidate-id="${candidat.id}">
+            
+            <div class="candidate-header">
+                <h3>👤 ${nomComplet || 'Candidat'}</h3>
+                <div class="candidate-contact">
+                    ${hasEmail ? `
+                    <div class="contact-item">
+                        <i>📧</i>
+                        <span>${candidat.email}</span>
+                        <div class="contact-actions">
+                            <button class="contact-btn email" onclick="envoyerEmail('${candidatEmail}', '${candidatNomComplet}')">
+                                Contacter
+                            </button>
+                        </div>
+                    </div>
+                    ` : ''}
+                    
+                    ${hasPhone ? `
+                    <div class="contact-item">
+                        <i>📞</i>
+                        <span>${candidat.telephone}</span>
+                        <div class="contact-actions">
+                            <button class="contact-btn call" onclick="appelerCandidat('${candidatTelephone}')">
+                               Appeler
+                            </button>
+                        </div>
+                    </div>
+                    ` : ''}
+                    
+                    <div class="contact-item">
+                        <i>📄</i>
+                        <span>CV</span>
+                        <div class="contact-actions">
+                            ${cvUrl ? `
+                            <button class="contact-btn email" onclick="viewCV('${cvUrlSafe}')">
+                                Voir CV
+                            </button>
+                            ` : `
+                            <span style="color: #6c757d; font-size: 0.9em;">Non disponible</span>
+                            `}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="candidate-info">
+                <!-- Jauge d'expérience -->
+                <div class="info-item experience-item">
+                    <span class="info-label">Expérience :</span>
+                    <div class="experience-gauge-container">
+                        <div class="experience-gauge" id="experienceGauge-${candidat.id}">
+                            <!-- La jauge sera remplie par JavaScript -->
+                        </div>
+                        <div class="experience-label">
+                            <span class="experience-years" id="experienceYears-${candidat.id}">${anneesExp} an(s)</span>
+                            <span class="experience-level" id="experienceLevel-${candidat.id}">${niveauLabel}</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="info-item">
+                    <span class="info-label">Métier(s) :</span>
+                    <span class="info-value">${metiersDisplay}</span>
+                </div>
+                
+                ${candidat.niveau ? `
+                <div class="info-item">
+                    <span class="info-label">Niveau :</span>
+                    <span class="info-value">${candidat.niveau}</span>
+                </div>
+                ` : ''}
+                
+                ${competencesDisplay !== 'Non renseigné' ? `
+                <div class="info-item">
+                    <span class="info-label">Compétences :</span>
+                    <span class="info-value">${competencesDisplay}</span>
+                </div>
+                ` : ''}
+            </div>
+
+            <div class="rdv-section">
+                <button class="rdv-toggle" onclick="toggleRdvTools(this)">
+                    📅 Prendre rendez-vous
+                </button>
+                <div class="rdv-tools">
+                    <h4>Choisissez un outil :</h4>
+                    <div class="tools-grid">
+                        <button class="tool-btn teams" onclick="proposerEntretienTeams('${candidatNomComplet}', '${candidatEmail}')">
+                            💻 Microsoft Teams
+                        </button>
+                        <button class="tool-btn meet" onclick="proposerEntretienMeet('${candidatNomComplet}', '${candidatEmail}')">
+                            🎥 Google Meet
+                        </button>
+                        <button class="tool-btn outlook" onclick="proposerEntretienOutlook('${candidatNomComplet}', '${candidatEmail}')">
+                            📧 Outlook Calendar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        gridElement.appendChild(card);
+        
+        // Animer la jauge après l'insertion dans le DOM
+        setTimeout(() => afficherJaugeExperience(candidat.id, candidat), 100);
+    });
+}
+
+        function formatDisplayData(data) {
+            if (!data) return 'Non renseigné';
+            const array = extractArrayFromData(data);
+            return array.length > 0 ? array.join(', ') : 'Non renseigné';
+        }
+
+        function findCvUrl(candidate) {
+            const nomComplet = `${candidate.prenom || ''} ${candidate.nom || ''}`.trim();
+
+            if (!nomComplet) return null;
+            if (allCVs.length === 0) return null;
+
+            const cvTrouve = allCVs.find(cv => {
+                const filename = cv.filename.toLowerCase();
+                const nomRecherche = nomComplet.toLowerCase();
+
+                const matches = filename.includes(nomRecherche) || 
+                       filename.includes(nomRecherche.replace(' ', '_')) ||
+                       filename.includes(nomRecherche.replace(' ', '-')) ||
+                       filename.includes(nomRecherche.split(' ')[0]) ||
+                       filename.includes(nomRecherche.split(' ')[1]);
+
+                return matches;
+            });
+
+            return cvTrouve ? cvTrouve.url : null;
+        }
+
+        function showLoading() {
+            document.getElementById('loading').style.display = 'block';
+        }
+
+        function showError(message) {
+            const gridElement = document.getElementById('candidatesGrid');
+            gridElement.innerHTML = `
+                <div style="text-align: center; padding: 40px; color: #dc3545;">
+                    <i>❌</i>
+                    <h3>${message}</h3>
+                    <button onclick="initializePage()" style="margin-top: 20px; padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer;">
+                        Réessayer
+                    </button>
+                </div>
+            `;
+        }
+
+        // Gestion de la sélection des candidats
+        function toggleCandidateSelection(candidateId, isSelected) {
+            if (isSelected) {
+                selectedCandidates.add(candidateId);
+            } else {
+                selectedCandidates.delete(candidateId);
+            }
+            
+            // Mettre à jour l'apparence de la card
+            const cards = document.querySelectorAll('.candidate-card');
+            cards.forEach(card => {
+                const checkbox = card.querySelector('.select-candidate');
+                if (checkbox && parseInt(checkbox.dataset.candidateId) === candidateId) {
+                    card.classList.toggle('selected', isSelected);
+                }
+            });
+            
+            updateSelectionUI();
+        }
+
+        function updateSelectionUI() {
+            const selectionActions = document.getElementById('selectionActions');
+            const selectionCount = document.getElementById('selectionCount');
+            
+            if (selectedCandidates.size > 0) {
+                selectionActions.style.display = 'block';
+                selectionCount.textContent = `${selectedCandidates.size} candidat(s) sélectionné(s)`;
+            } else {
+                selectionActions.style.display = 'none';
+            }
+        }
+
+        function clearSelection() {
+            selectedCandidates.clear();
+            
+            // Décocher toutes les cases
+            document.querySelectorAll('.select-candidate:checked').forEach(checkbox => {
+                checkbox.checked = false;
+                const card = checkbox.closest('.candidate-card');
+                if (card) card.classList.remove('selected');
+            });
+            
+            updateSelectionUI();
+        }
+
+        // Fonction pour lancer la validation
+        function envoyerCandidatsParEmail() {
+            if (selectedCandidates.size === 0) {
+                alert('Veuillez sélectionner au moins un candidat.');
+                return;
+            }
+
+            const selectedCount = selectedCandidates.size;
+            const rejectedCount = allCandidats.length - selectedCount;
+            
+            document.getElementById('modalMessage').innerHTML = `
+                <strong>Vous êtes sur le point de :</strong><br><br>
+                ✅ <strong>Envoyer ${selectedCount} candidat(s) sélectionné(s)</strong> à votre adresse email professionnelle<br><br>
+                ❌ <strong>Envoyer un email de refus à ${rejectedCount} candidat(s) non sélectionné(s)</strong>
+            `;
+            
+            document.getElementById('confirmationModal').style.display = 'block';
+        }
+
+        function confirmerValidation() {
+            closeModal();
+            // Ouvrir la modale pour personnaliser le message de refus
+            document.getElementById('refusModal').style.display = 'block';
+        }
+
+        async function envoyerRefus() {
+            const refusMessage = document.getElementById('refusMessage').value;
+            
+            if (!refusMessage.trim()) {
+                alert('Veuillez saisir un message de refus.');
+                return;
+            }
+
+            try {
+                // Récupérer les candidats sélectionnés et non sélectionnés
+                const selectedCandidatesData = allCandidats.filter(c => selectedCandidates.has(c.id));
+                const rejectedCandidatesData = allCandidats.filter(c => !selectedCandidates.has(c.id));
+                
+                // Préparer les données pour l'email
+                const emailData = {
+                    selectedCandidates: selectedCandidatesData,
+                    rejectedCandidates: rejectedCandidatesData,
+                    refusalMessage: refusMessage,
+                    userEmail: "user@example.com", // Remplacer par l'email du recruteur connecté
+                    timestamp: new Date().toISOString()
+                };
+
+                console.log('📤 Envoi des données:', emailData);
+
+                // Envoyer les données au serveur
+                const response = await fetch(SEND_EMAIL_API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${AUTH_TOKEN}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(emailData)
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    alert(`✅ Validation terminée avec succès !\n\n${selectedCandidatesData.length} candidat(s) envoyé(s) à votre email\n${rejectedCandidatesData.length} email(s) de refus envoyé(s)`);
+                    
+                    // Réinitialiser la sélection
+                    clearSelection();
+                    closeRefusModal();
+                    
+                    // Recharger les candidats
+                    await loadCandidatesData();
+                } else {
+                    throw new Error('Erreur lors de l\'envoi des emails');
+                }
+
+            } catch (error) {
+                console.error('❌ Erreur:', error);
+                alert('Une erreur est survenue lors de l\'envoi des emails. Veuillez réessayer.');
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('confirmationModal').style.display = 'none';
+        }
+
+        function closeRefusModal() {
+            document.getElementById('refusModal').style.display = 'none';
+        }
+
+        // Fonctions de contact
+        function appelerCandidat(telephone) {
+            if (!telephone) {
+                alert('Aucun numéro de téléphone disponible');
+                return;
+            }
+            window.open(`tel:${telephone}`, '_self');
+        }
+
+        function envoyerEmail(email, nomComplet) {
+            if (!email) {
+                alert('Aucune adresse email disponible');
+                return;
+            }
+
+            const sujet = encodeURIComponent(`Candidature - ${nomComplet}`);
+            const corps = encodeURIComponent(`Bonjour ${nomComplet},\n\n`);
+            window.open(`mailto:${email}?subject=${sujet}&body=${corps}`, '_blank');
+        }
+
+        function toggleRdvTools(button) {
+            const toolsContainer = button.nextElementSibling;
+            toolsContainer.style.display = toolsContainer.style.display === 'block' ? 'none' : 'block';
+            button.textContent = toolsContainer.style.display === 'block' ? 'Masquer les outils' : '📅 Prendre rendez-vous';
+        }
+
+        function proposerEntretienTeams(nomComplet, email) {
+            const sujet = encodeURIComponent(`Entretien avec ${nomComplet}`);
+            const teamsLink = `https://teams.microsoft.com/l/meeting/new?subject=${sujet}${email ? `&attendees=${email}` : ''}`;
+            window.open(teamsLink, '_blank');
+        }
+
+        function proposerEntretienMeet(nomComplet, email) {
+            const sujet = encodeURIComponent(`Entretien avec ${nomComplet}`);
+            const meetLink = `https://meet.google.com/new?hs=191&authuser=0&title=${sujet}`;
+            window.open(meetLink, '_blank');
+        }
+
+        function proposerEntretienOutlook(nomComplet, email) {
+            const sujet = encodeURIComponent(`Entretien avec ${nomComplet}`);
+            const outlookLink = `https://outlook.live.com/calendar/0/deeplink/compose?subject=${sujet}${email ? `&to=${email}` : ''}`;
+            window.open(outlookLink, '_blank');
+        }
+
+        function viewCV(cvUrl) {
+            if (cvUrl) {
+                window.open(cvUrl, '_blank');
+            } else {
+                alert('CV non disponible pour ce candidat');
+            }
+        }
+        
+        // Fonction pour fermer la modale de succès
+function closeSuccessModal() {
+    document.getElementById('successModal').style.display = 'none';
+}
+
+// Fonction pour afficher la modale de succès
+function showSuccessModal(message) {
+    document.getElementById('successMessage').innerHTML = message;
+    document.getElementById('successModal').style.display = 'block';
+}
+
+// Fonction pour améliorer l'affichage des candidats
+function enhanceCandidateDisplay() {
+    // Ajouter data-candidate-id aux cartes
+    document.querySelectorAll('.candidate-card').forEach(card => {
+        const checkbox = card.querySelector('.select-candidate');
+        if (checkbox) {
+            const candidateId = checkbox.onclick.toString().match(/\d+/)[0];
+            card.dataset.candidateId = candidateId;
+        }
+    });
+}
+
+// Fonction pour récupérer l'email de l'utilisateur connecté
+function getCurrentUserEmail() {
+    // Essayez de récupérer l'email depuis WordPress
+    try {
+        // Si vous avez un objet userData global
+        if (typeof userData !== 'undefined' && userData.email) {
+            return userData.email;
+        }
+        
+        // Depuis les cookies/localStorage
+        const userEmail = localStorage.getItem('truthtalent_user_email');
+        if (userEmail) return userEmail;
+        
+        // Depuis les meta tags
+        const metaEmail = document.querySelector('meta[name="current-user-email"]');
+        if (metaEmail) return metaEmail.getAttribute('content');
+        
+    } catch (e) {
+        console.log('Impossible de récupérer l\'email:', e);
+    }
+    
+    // Fallback: demander à l'utilisateur
+    const savedEmail = localStorage.getItem('recruiter_email');
+    if (savedEmail) return savedEmail;
+    
+    const email = prompt('Veuillez entrer votre adresse email professionnelle :');
+    if (email && email.includes('@')) {
+        localStorage.setItem('recruiter_email', email);
+        return email;
+    }
+    
+    return null;
+}
+
+// Initialisation améliorée
+document.addEventListener('DOMContentLoaded', function() {
+    initializePage();
+    
+    // Ajouter l'amélioration d'affichage
+    setTimeout(enhanceCandidateDisplay, 1000);
+    
+    // Vérifier si l'utilisateur est connecté
+    checkUserLogin();
+});
+
+function checkUserLogin() {
+    // Simuler une vérification de connexion
+    const userEmail = getCurrentUserEmail();
+    if (!userEmail) {
+        console.log('⚠️ Aucun email utilisateur trouvé. Certaines fonctionnalités seront limitées.');
+        
+        // Afficher un avertissement discret
+        const warning = document.createElement('div');
+        warning.innerHTML = `
+            <div style="position: fixed; bottom: 20px; right: 20px; background: #fff3cd; border: 1px solid #ffeaa7; padding: 10px 15px; border-radius: 6px; font-size: 12px; z-index: 9999; max-width: 300px;">
+                <strong>⚠️ Connexion recommandée</strong><br>
+                <span style="color: #666;">Connectez-vous pour accéder à toutes les fonctionnalités.</span>
+                <br>
+                <a href="/connexion/" style="color: #007bff; text-decoration: underline; font-size: 11px;">Se connecter</a>
+            </div>
+        `;
+        document.body.appendChild(warning);
+        
+        setTimeout(() => warning.remove(), 10000);
+    }
+}
+
+// Fonction pour fermer la modale de succès
+function closeSuccessModal() {
+    document.getElementById('successModal').style.display = 'none';
+}
+
+// Fonction pour afficher la modale de succès
+function showSuccessModal(message) {
+    document.getElementById('successMessage').innerHTML = message;
+    document.getElementById('successModal').style.display = 'block';
+}
+
+// Fonction pour améliorer l'affichage des candidats
+function enhanceCandidateDisplay() {
+    // Ajouter data-candidate-id aux cartes
+    document.querySelectorAll('.candidate-card').forEach(card => {
+        const checkbox = card.querySelector('.select-candidate');
+        if (checkbox && checkbox.onchange) {
+            // Extraire l'ID du candidat de la fonction onchange
+            const match = checkbox.onchange.toString().match(/toggleCandidateSelection\((\d+)/);
+            if (match && match[1]) {
+                card.dataset.candidateId = match[1];
+            }
+        }
+    });
+}
+
+        // Rendre les fonctions globales
+        window.toggleCandidateSelection = toggleCandidateSelection;
+        window.envoyerCandidatsParEmail = envoyerCandidatsParEmail;
+        window.clearSelection = clearSelection;
+        window.confirmerValidation = confirmerValidation;
+        window.closeModal = closeModal;
+        window.closeRefusModal = closeRefusModal;
+        window.envoyerRefus = envoyerRefus;
+        window.appelerCandidat = appelerCandidat;
+        window.envoyerEmail = envoyerEmail;
+        window.toggleRdvTools = toggleRdvTools;
+        window.proposerEntretienTeams = proposerEntretienTeams;
+        window.proposerEntretienMeet = proposerEntretienMeet;
+        window.proposerEntretienOutlook = proposerEntretienOutlook;
+        window.viewCV = viewCV;
+        window.resetFilters = resetFilters;
+        window.initializePage = initializePage;
+    </script>
+</body>
+</html>
