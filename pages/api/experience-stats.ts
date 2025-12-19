@@ -55,7 +55,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
         
         // 3. Top des expériences
-        const { data: topCandidats, error: topError } = await supabase
+        const { data: topCandidats } = await supabase
             .from('candidats')
             .select('id, nom, prenom, annees_experience, postes')
             .not('annees_experience', 'is', null)
