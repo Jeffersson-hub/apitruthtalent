@@ -323,40 +323,159 @@ function extractProfilProfessionnel(text: string): string {
 }
 
 function extractCompetencesProfessionnelles(text: string): string[] {
-  const competences: string[] = [];
+  console.log('🔍 Recherche des compétences...');
   
-  const technicalSkills = [
-    'JavaScript', 'TypeScript', 'Python', 'Java', 'PHP', 'C#', 'C++', 'Ruby', 'Go', 'Rust',
-    'Swift', 'Kotlin', 'Scala', 'Perl', 'R', 'MATLAB', 'SQL',
-    'React', 'Angular', 'Vue.js', 'Svelte', 'Next.js', 'Nuxt.js', 'Gatsby',
-    'Node.js', 'Express', 'Django', 'Flask', 'Spring', 'Laravel', 'Symfony', 'Ruby on Rails',
-    'MySQL', 'PostgreSQL', 'MongoDB', 'Redis', 'Oracle', 'SQL Server', 'Cassandra', 'Elasticsearch',
-    'AWS', 'Azure', 'Google Cloud', 'Docker', 'Kubernetes', 'Terraform', 'Ansible', 'Jenkins', 'GitLab CI',
-    'Git', 'GitHub', 'GitLab', 'Jira', 'Confluence', 'Trello', 'Figma', 'Adobe XD', 'Photoshop',
-    'Agile', 'Scrum', 'Kanban', 'DevOps', 'CI/CD', 'TDD', 'BDD'
+  const competences: string[] = [];
+  const lines = text.split('\n');
+  
+  // 1. Trouver l'index de la section Compétences
+  let skillsSectionStart = -1;
+  let skillsSectionEnd = -1;
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim().toUpperCase();
+    
+    // Détecter le début de la section
+    if (line.includes('COMPÉTENCES') || line.includes('COMPETENCES') || 
+        line.includes('SKILLS') || line.includes('APTITUDES') ||
+        line.includes('QUALIFICATIONS') || line.includes('SAVOIR-FAIRE')) {
+      skillsSectionStart = i + 1; // Commencer à la ligne suivante
+      
+      // Trouver la fin de la section (prochaine section majeure)
+      for (let j = i + 1; j < lines.length; j++) {
+        const nextLine = lines[j].trim().toUpperCase();
+        if (nextLine.includes('EXPÉRIENCE') || nextLine.includes('EXPERIENCE') ||
+            nextLine.includes('FORMATION') || nextLine.includes('LANGUES') ||
+            nextLine.includes('PROJETS') || nextLine.includes('CENTRE D\'INTÉRÊT')) {
+          skillsSectionEnd = j;
+          break;
+        }
+      }
+      
+      // Si pas trouvé de fin, prendre les 20 lignes suivantes
+      if (skillsSectionEnd === -1) {
+        skillsSectionEnd = Math.min(i + 20, lines.length);
+      }
+      
+      console.log(`📋 Section compétences: lignes ${skillsSectionStart}-${skillsSectionEnd}`);
+      break;
+    }
+  }
+  
+  // 2. Extraire les compétences de la section
+  if (skillsSectionStart !== -1) {
+    for (let i = skillsSectionStart; i < skillsSectionEnd; i++) {
+      const line = lines[i].trim();
+      
+      if (!line) continue; // Ignorer les lignes vides
+      
+      // Format 1: Lignes avec tirets/puces
+      if (line.startsWith('-') || line.startsWith('•') || line.startsWith('*') || /^[●○■□►▸]/.test(line)) {
+        const competence = line.replace(/^[-•*●○■□►▸]\s*/, '').trim();
+        if (isValidCompetence(competence)) {
+          competences.push(competence);
+        }
+      }
+      // Format 2: Lignes numérotées
+      else if (/^\d+\./.test(line)) {
+        const competence = line.replace(/^\d+\.\s*/, '').trim();
+        if (isValidCompetence(competence)) {
+          competences.push(competence);
+        }
+      }
+      // Format 3: Liste de compétences séparées
+      else if (line.includes(',') || line.includes(';') || line.includes('/') || line.includes('|')) {
+        const separators = /[,;/|]\s*/;
+        const parts = line.split(separators);
+        
+        parts.forEach(part => {
+          const trimmed = part.trim();
+          if (isValidCompetence(trimmed)) {
+            competences.push(trimmed);
+          }
+        });
+      }
+      // Format 4: Compétence seule sur une ligne
+      else if (isValidCompetence(line) && line.length < 50) {
+        competences.push(line);
+      }
+    }
+  }
+  
+  // 3. Nettoyer et formater
+  const cleaned = cleanCompetencesList(competences);
+  
+  console.log(`✅ Compétences trouvées: ${cleaned.length}`);
+  if (cleaned.length > 0) {
+    console.log('📝 Liste:', cleaned.slice(0, 5));
+  }
+  
+  return cleaned;
+}
+
+// Fonction de validation
+function isValidCompetence(text: string): boolean {
+  if (!text || text.length < 2 || text.length > 100) return false;
+  
+  const lower = text.toLowerCase();
+  
+  // Exclure les éléments qui ne sont pas des compétences
+  const excludedPatterns = [
+    /\d{4}/, // Années
+    /^\d+$/, // Nombres seuls
+    /ans$/, // "3 ans"
+    /année/, // "2 années"
+    /expérience/, // "expérience"
+    /chef de projet/, // (géré séparément)
+    /développeur/, // (géré séparément)
+    /ingénieur/, // (géré séparément)
+    /stage/, // "stage"
+    /alternance/, // "alternance"
+    /mission/, // "mission"
+    /projet/, // "projet"
+    /responsable/, // "responsable"
+    /manager/ // "manager"
   ];
   
-  for (const skill of technicalSkills) {
-    if (text.toLowerCase().includes(skill.toLowerCase())) {
-      competences.push(skill);
+  for (const pattern of excludedPatterns) {
+    if (pattern.test(lower)) {
+      return false;
     }
   }
   
-  const skillsSection = text.match(/compétences?([\s\S]*?)(?=\n\s*\n|expériences?|formations?|$)/i);
-  if (skillsSection) {
-    const skillsText = skillsSection[1];
-    const bulletItems = skillsText.match(/[-•*]\s*([^\n]+)/g);
-    if (bulletItems) {
-      bulletItems.forEach(item => {
-        const skill = item.replace(/^[-•*]\s*/, '').trim();
-        if (skill.length > 2) {
-          competences.push(skill);
-        }
-      });
+  // Vérifier que ce n'est pas une phrase complète (trop long ou contient trop de mots)
+  const words = text.split(/\s+/);
+  if (words.length > 5) return false; // Trop de mots = probablement une phrase
+  
+  return true;
+}
+
+// Fonction de nettoyage
+function cleanCompetencesList(competences: string[]): string[] {
+  const cleaned: string[] = [];
+  const seen = new Set<string>();
+  
+  for (const comp of competences) {
+    // Nettoyer chaque compétence
+    let cleanedComp = comp
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^[:\-•*]\s*/, '') // Enlever préfixes
+      .replace(/\s*[:\-•*]$/, ''); // Enlever suffixes
+    
+    // Capitaliser la première lettre
+    if (cleanedComp.length > 0) {
+      cleanedComp = cleanedComp.charAt(0).toUpperCase() + cleanedComp.slice(1);
+    }
+    
+    // Vérifier la validité et éviter les doublons
+    if (isValidCompetence(cleanedComp) && !seen.has(cleanedComp.toLowerCase())) {
+      cleaned.push(cleanedComp);
+      seen.add(cleanedComp.toLowerCase());
     }
   }
   
-  return [...new Set(competences)].slice(0, 15);
+  return cleaned.slice(0, 15); // Limiter à 15
 }
 
 function extractExperiencesProfessionnelles(text: string): any[] {
