@@ -118,28 +118,6 @@ function createCandidatVide(filename: string): Candidat {
   };
 }
 
-async function readText(buffer: Buffer, filename: string): Promise<string> {
-  const lower = filename.toLowerCase();
-  
-  try {
-    if (lower.endsWith('.pdf')) {
-      const data = await pdfParse(buffer);
-      return data.text || '';
-    }
-    
-    if (lower.endsWith('.docx') || lower.endsWith('.doc')) {
-      const { value } = await mammoth.extractRawText({ buffer });
-      return value || '';
-    }
-    
-    return buffer.toString('utf8');
-    
-  } catch (error) {
-    console.error(`Erreur lecture ${filename}:`, error);
-    return buffer.toString('utf8');
-  }
-}
-
 function extractEmail(_text: string): string | null {
   const match = _text.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/gi);
   return match ? match[0] : null;
@@ -337,4 +315,43 @@ function extractProfilFromText(_text: string): string | null {
 function extractEntreprisePrincipale(_experiences: any[]): string | null {
   if (_experiences.length === 0) return null;
   return _experiences[0].entreprise || null;
+}
+
+// Dans services/documentParser.ts, ajoutez cette fonction :
+
+function cleanExtractedText(text: string): string {
+  if (!text) return '';
+  
+  return text
+    .replace(/\x00/g, '') // Supprimer les caractères nuls
+    .replace(/\\u0000/g, '') // Supprimer les séquences Unicode nulles
+    .replace(/[^\x20-\x7E\u00C0-\u017F\n\r\t]/g, ' ') // Garder les caractères imprimables
+    .replace(/\s+/g, ' ') // Normaliser les espaces
+    .trim();
+}
+
+// Modifiez readText pour utiliser le nettoyage :
+async function readText(buffer: Buffer, filename: string): Promise<string> {
+  const lower = filename.toLowerCase();
+  
+  try {
+    let text = '';
+    
+    if (lower.endsWith('.pdf')) {
+      const data = await pdfParse(buffer);
+      text = data.text || '';
+    } else if (lower.endsWith('.docx') || lower.endsWith('.doc')) {
+      const { value } = await mammoth.extractRawText({ buffer });
+      text = value || '';
+    } else {
+      text = buffer.toString('utf8');
+    }
+    
+    // Nettoyer le texte extrait
+    return cleanExtractedText(text);
+    
+  } catch (error) {
+    console.error(`Erreur lecture ${filename}:`, error);
+    return cleanExtractedText(buffer.toString('utf8'));
+  }
 }

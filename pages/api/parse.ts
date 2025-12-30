@@ -6,6 +6,7 @@ import { promisify } from 'util';
 import { extractCVData } from '../../services/documentParser';
 import { createClient } from '@supabase/supabase-js';
 import fetch from 'node-fetch';
+import crypto from 'crypto';
 
 const readFile = promisify(fs.readFile);
 
@@ -19,6 +20,23 @@ const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+function cleanTextForDatabase(text: string): string {
+  if (!text) return '';
+  
+  // Supprimer les caractères nuls et autres caractères problématiques
+  return text
+    .replace(/\x00/g, '') // Supprimer les caractères nuls
+    .replace(/\\u0000/g, '') // Supprimer les séquences Unicode nulles
+    .replace(/[^\x20-\x7E\u00C0-\u017F\n\r\t]/g, ' ') // Garder seulement les caractères imprimables
+    .replace(/\s+/g, ' ') // Normaliser les espaces
+    .trim();
+}
+
+function generateUniqueId(filename: string): string {
+  const hash = crypto.createHash('md5').update(filename + Date.now()).digest('hex').substring(0, 12);
+  return `cv_${hash}`;
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -52,7 +70,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const response = await fetch(file_url);
       if (!response.ok) throw new Error(`Échec téléchargement: ${response.status}`);
       
-      fileBuffer = await response.buffer();
+      // Utiliser arrayBuffer() au lieu de buffer()
+      const arrayBuffer = await response.arrayBuffer();
+      fileBuffer = Buffer.from(arrayBuffer);
       filename = file_url.split('/').pop() || 'cv';
       
     } else if (contentType.includes('multipart/form-data')) {
@@ -81,13 +101,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       nom: extractedData.nom,
       prenom: extractedData.prenom,
       email: extractedData.email,
-      metiers: extractedData.metiers,
-      annees_experience: extractedData.annees_experience
+      metiers: extractedData.metiers
     });
     
     // Créer un identifiant unique
-    const fileHash = require('crypto').createHash('md5').update(filename + Date.now()).digest('hex').substring(0, 12);
-    const uniqueId = `cv_${fileHash}`;
+    const uniqueId = generateUniqueId(filename);
+    
+    // Nettoyer le texte brut pour la base de données
+    const rawText = fileBuffer.toString('utf8', 0, 5000);
+    const cleanRawText = cleanTextForDatabase(rawText);
     
     // Préparer les données pour Supabase
     const candidatData: any = {
@@ -104,9 +126,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       fichier: uniqueId,
       cv_url: file_url,
       cv_filename: filename,
-      raw_text: fileBuffer.toString('utf8').substring(0, 5000),
+      raw_text: cleanRawText,
       
-      // Niveau et expérience (optionnels)
+      // Niveau et expérience
       niveau: extractedData.niveau || 'À déterminer',
       
       // Compétences et formations
