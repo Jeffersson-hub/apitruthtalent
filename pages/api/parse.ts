@@ -1,70 +1,89 @@
-// pages/api/parse.ts - VERSION OPTIMISÉE POUR VERCEL
+// pages/api/parse.ts - VERSION RECEVANT LES FILES
 import { NextApiRequest, NextApiResponse } from 'next';
-import fetch from "node-fetch";
+import { IncomingForm } from 'formidable';
+import fs from 'fs';
+import { promisify } from 'util';
+import { extractCVData } from '../../services/documentParser';
+import { createClient } from '@supabase/supabase-js';
 
-// pages/api/parse-cv.ts
+const readFile = promisify(fs.readFile);
 
-//import { createClient } from '@supabase/supabase-js';
+// Désactiver le bodyParser par défaut
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
 
-/* const supabase = createClient(
+const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
-); */
+);
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  // CORS simple
+  // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
   
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Méthode non autorisée' });
   }
   
   try {
-    const { file_url, file_path } = req.body;
+    // Parser le form data avec formidable
+    const form = new IncomingForm();
     
-    if (!file_url && !file_path) {
-      return res.status(400).json({ error: 'URL du fichier requise' });
+    const [files] = await new Promise<[any, any]>((resolve, reject) => {
+      form.parse(req, (err, fields, files) => {
+        if (err) reject(err);
+        resolve([fields, files]);
+      });
+    });
+    
+    const file = files.file as any;
+    
+    if (!file) {
+      return res.status(400).json({ error: 'Fichier manquant' });
     }
     
-    console.log('🚀 Appel Edge Function...');
+    const filename = file.originalFilename || file.newFilename;
+    console.log(`📄 Analyse du fichier: ${filename}`);
     
-    // Appel direct à votre Edge Function
-    const edgeResponse = await fetch(
-      'https://cpdokjsyxmohubgvxift.supabase.co/functions/v1/parse-cv',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`
-        },
-        body: JSON.stringify({ file_url, file_path })
-      }
-    );
+    // Lire le fichier
+    const fileBuffer = await readFile(file.filepath);
     
-    const result = await edgeResponse.json();
+    // Extraire les données
+    const extractedData = await extractCVData(fileBuffer, filename, supabase);
     
-    /* if (!edgeResponse.ok) {
-      throw new Error(result.error || 'Erreur Edge Function');
-    } */
+    console.log(`✅ Données extraites:`, {
+      nom: extractedData.nom,
+      prenom: extractedData.prenom,
+      email: extractedData.email,
+      metiers: extractedData.metiers
+    });
     
-    return res.status(200).json(result);
+    // Nettoyer le fichier temporaire
+    fs.unlinkSync(file.filepath);
+    
+    return res.status(200).json({
+      success: true,
+      candidat: extractedData,
+      filename,
+      message: 'CV analysé avec succès'
+    });
     
   } catch (error: any) {
-    console.error('❌ Erreur API:', error);
+    console.error('❌ Erreur API parse:', error);
     
     return res.status(500).json({
       success: false,
       error: error.message,
-      code: 'API_ERROR'
+      code: 'PARSE_ERROR'
     });
   }
 }
-
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: '5mb'
-    }
-  }
-};
