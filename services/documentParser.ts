@@ -1,12 +1,8 @@
-// services/documentParser.ts - VERSION CORRIGÉE COMPLÈTE
+// services/documentParser.ts - VERSION CORRIGÉE
 import type Candidat from "../types/candidats";
 import mammoth from "mammoth";
 import pdfParse from "pdf-parse";
 
-
-// ========================
-// CONFIGURATION SIMPLIFIÉE
-// ========================
 const METIERS_REFERENCE: Record<string, string[]> = {
   informatique: [
     'Développeur Fullstack', 'Développeur Frontend', 'Développeur Backend', 
@@ -22,10 +18,6 @@ const METIERS_REFERENCE: Record<string, string[]> = {
   ]
 };
 
-
-// ========================
-// FONCTION PRINCIPALE CORRIGÉE
-// ========================
 export async function extractCVData(buffer: Buffer, filename: string, _supabase: any): Promise<Candidat> {
   try {
     console.log(`🔍 Extraction CV: ${filename}`);
@@ -44,34 +36,37 @@ export async function extractCVData(buffer: Buffer, filename: string, _supabase:
     const experiences = extractExperiencesAmeliorees(text);
     const formations = extractFormationsAmeliorees(text);
     const competences = extractCompetencesAmeliorees(text);
-    const metiers = extractMetiersFromText(text); // Retourne string[]
-    const niveau = extractNiveauFromFormationsAmeliore(formations); // Retourne string | null
-    const langues = extractLanguesFromText(text); // Retourne Langue[]
-    const postes = extractPostesFromExperiences(experiences); // Retourne string[]
-    const profil = extractProfilFromText(text); // Retourne string | null
-    const entreprise = extractEntreprisePrincipale(experiences); // Retourne string | null
+    const metiers = extractMetiersFromText(text);
+    const niveau = extractNiveauFromFormationsAmeliore(formations);
+    const langues = extractLanguesFromText(text);
+    const postes = extractPostesFromExperiences(experiences);
+    const profil = extractProfilFromText(text);
+    const entreprise = extractEntreprisePrincipale(experiences);
     
-    // 4. Construire le candidat avec TOUTES les propriétés obligatoires
+    // 4. Calculer les années d'expérience
+    const anneesExperience = calculateAnneesExperience(experiences);
+    
+    // 5. Construire le candidat
     const candidat: Candidat = {
-      // Propriétés obligatoires
       fichier: filename,
       nom,
       prenom,
       email,
       telephone,
-      poste: postes.length > 0 ? postes[0] : null, // ⬅️ OBLIGATOIRE : string | null
+      poste: postes.length > 0 ? postes[0] : null,
       entreprise,
       profil,
-      competences: competences.slice(0, 20), // ⬅️ string[]
-      metiers: metiers.slice(0, 5), // ⬅️ string[]
-      formations: formations.slice(0, 10), // ⬅️ any[]
-      experiences: experiences.slice(0, 10), // ⬅️ any[]
-      langues, // ⬅️ any[]
+      competences: competences.slice(0, 20),
+      metiers: metiers.slice(0, 5),
+      formations: formations.slice(0, 10),
+      experiences: experiences.slice(0, 10),
+      langues,
       adresse,
       linkedin,
       niveau,
       
       // Propriétés optionnelles
+      annees_experience: anneesExperience, // ← Ajouté ici
       postes: postes.slice(0, 5),
       source_analyse: 'document_parser'
     };
@@ -80,7 +75,8 @@ export async function extractCVData(buffer: Buffer, filename: string, _supabase:
       nom: candidat.nom,
       prenom: candidat.prenom,
       poste: candidat.poste,
-      niveau: candidat.niveau
+      niveau: candidat.niveau,
+      annees_experience: candidat.annees_experience
     });
     
     return candidat;
@@ -91,9 +87,13 @@ export async function extractCVData(buffer: Buffer, filename: string, _supabase:
   }
 }
 
-// ========================
-// FONCTIONS UTILITAIRES CORRIGÉES
-// ========================
+// Fonction pour calculer les années d'expérience
+function calculateAnneesExperience(experiences: any[]): number {
+  if (!experiences || experiences.length === 0) return 0;
+  
+  // Logique simple : nombre d'expériences * 1.5 (approximation)
+  return Math.round(experiences.length * 1.5);
+}
 
 function createCandidatVide(filename: string): Candidat {
   return {
@@ -102,7 +102,7 @@ function createCandidatVide(filename: string): Candidat {
     prenom: null,
     email: null,
     telephone: null,
-    poste: null, // ⬅️ OBLIGATOIRE
+    poste: null,
     entreprise: null,
     profil: null,
     competences: [],
@@ -114,6 +114,7 @@ function createCandidatVide(filename: string): Candidat {
     linkedin: null,
     niveau: null,
     source_analyse: 'erreur'
+    // annees_experience est optionnel, pas besoin de l'inclure ici
   };
 }
 
@@ -161,7 +162,6 @@ function guessAddress(_text: string): string | null {
 }
 
 function guessNameAmeliore(_raw: string, _filename: string): { nom: string | null; prenom: string | null } {
-  // Logique simplifiée
   const lines = _raw.split('\n').slice(0, 5);
   
   for (const line of lines) {
@@ -177,7 +177,6 @@ function guessNameAmeliore(_raw: string, _filename: string): { nom: string | nul
     }
   }
   
-  // Fallback au nom du fichier
   const baseName = _filename.replace(/\.[^.]+$/, '');
   const parts = baseName.split(/[_\-\s]+/);
   if (parts.length >= 2) {
@@ -194,13 +193,11 @@ function extractExperiencesAmeliorees(_text: string): any[] {
   const experiences: any[] = [];
   const lines = _text.split('\n');
   
-  // Logique simplifiée pour les tests
   let currentExperience: any = null;
   
   for (const line of lines) {
     const trimmed = line.trim();
     
-    // Détection d'une nouvelle expérience
     if (trimmed.match(/\b(19|20)\d{2}\b.*\b(19|20)\d{2}\b/) || trimmed.match(/Expérience|expérience/)) {
       if (currentExperience) {
         experiences.push(currentExperience);
@@ -215,7 +212,6 @@ function extractExperiencesAmeliorees(_text: string): any[] {
       };
     }
     
-    // Si on a une expérience en cours, on la met à jour
     if (currentExperience) {
       if (!currentExperience.poste && trimmed.length > 5 && trimmed.length < 100) {
         currentExperience.poste = trimmed;
@@ -342,42 +338,3 @@ function extractEntreprisePrincipale(_experiences: any[]): string | null {
   if (_experiences.length === 0) return null;
   return _experiences[0].entreprise || null;
 }
-
-// ========================
-// FONCTIONS À SUPPRIMER OU COMMENTER
-// ========================
-// Les fonctions suivantes ne sont pas appelées et peuvent être supprimées :
-
-/*
-async function loadAllDomainDictionaries(supabase: any): Promise<any[]> {
-  return [];
-}
-
-function detectDomaines(text: string, dictionnaires: any[]): any[] {
-  return [];
-}
-
-function extractSection(text: string, startRegex: RegExp, endRegex: RegExp): string {
-  return '';
-}
-
-async function loadDictionarySafe(supabase: any, path: string): Promise<string[]> {
-  return [];
-}
-
-function extraireTitrePrincipal(text: string): string | null {
-  return null;
-}
-
-function calculateSimilarityAmelioree(a: string, b: string): number {
-  return 0;
-}
-
-function cleanMetierItem(item: string): string {
-  return item;
-}
-
-function escapeRegex(string: string): string {
-  return string;
-}
-*/

@@ -9,7 +9,6 @@ import fetch from 'node-fetch';
 
 const readFile = promisify(fs.readFile);
 
-// Désactiver le bodyParser par défaut
 export const config = {
   api: {
     bodyParser: false,
@@ -22,72 +21,42 @@ const supabase = createClient(
 );
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-  
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Méthode non autorisée' });
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Méthode non autorisée' });
   
   try {
     const contentType = req.headers['content-type'] || '';
+    let file_url = '';
+    let fileBuffer: Buffer;
+    let filename = 'cv';
     
-    // OPTION A: Si c'est du JSON (appel du dashboard)
     if (contentType.includes('application/json')) {
-      // On doit récupérer le body manuellement
       const chunks: Buffer[] = [];
       for await (const chunk of req) {
         chunks.push(chunk);
       }
       const body = Buffer.concat(chunks).toString();
-      const { file_url } = JSON.parse(body);
+      const data = JSON.parse(body);
+      file_url = data.file_url;
       
       if (!file_url) {
         return res.status(400).json({ error: 'URL manquante' });
       }
       
-      console.log(`📄 Téléchargement depuis: ${file_url}`);
+      console.log(`📄 Téléchargement depuis Supabase: ${file_url}`);
       
-      // Télécharger le fichier depuis Supabase
       const response = await fetch(file_url);
-      if (!response.ok) {
-        throw new Error(`Échec téléchargement: ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`Échec téléchargement: ${response.status}`);
       
-      const buffer = await response.buffer();
-      const filename = file_url.split('/').pop() || 'cv';
+      fileBuffer = await response.buffer();
+      filename = file_url.split('/').pop() || 'cv';
       
-      // Extraire les données
-      const extractedData = await extractCVData(buffer, filename, supabase);
-      
-      // Retourner uniquement les données demandées
-      return res.status(200).json({
-        success: true,
-        candidat: {
-          nom: extractedData.nom || '',
-          prenom: extractedData.prenom || '',
-          email: extractedData.email || null,
-          telephone: extractedData.telephone || null,
-          metiers: extractedData.metiers || 'À déterminer',
-          postes: extractedData.postes || 'À déterminer',
-          entreprise: extractedData.entreprise || 'À déterminer',
-          profil: extractedData.profil || `CV ${filename}`
-        },
-        filename,
-        message: 'CV analysé avec succès'
-      });
-    }
-    
-    // OPTION B: Si c'est FormData (upload direct)
-    else if (contentType.includes('multipart/form-data')) {
+    } else if (contentType.includes('multipart/form-data')) {
       const form = new IncomingForm();
-      
       const [, files] = await new Promise<[any, any]>((resolve, reject) => {
         form.parse(req, (err, fields, files) => {
           if (err) reject(err);
@@ -96,44 +65,101 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
       
       const file = files.file as any;
+      if (!file) return res.status(400).json({ error: 'Fichier manquant' });
       
-      if (!file) {
-        return res.status(400).json({ error: 'Fichier manquant' });
-      }
-      
-      const filename = file.originalFilename || file.newFilename;
-      console.log(`📄 Analyse du fichier uploadé: ${filename}`);
-      
-      // Lire le fichier
-      const fileBuffer = await readFile(file.filepath);
-      
-      // Extraire les données
-      const extractedData = await extractCVData(fileBuffer, filename, supabase);
-      
-      // Nettoyer le fichier temporaire
+      filename = file.originalFilename || file.newFilename;
+      fileBuffer = await readFile(file.filepath);
       fs.unlinkSync(file.filepath);
       
-      // Retourner uniquement les données demandées
-      return res.status(200).json({
-        success: true,
-        candidat: {
-          nom: extractedData.nom || '',
-          prenom: extractedData.prenom || '',
-          email: extractedData.email || null,
-          telephone: extractedData.telephone || null,
-          metiers: extractedData.metiers || 'À déterminer',
-          postes: extractedData.postes || 'À déterminer',
-          entreprise: extractedData.entreprise || 'À déterminer',
-          profil: extractedData.profil || `CV ${filename}`
-        },
-        filename,
-        message: 'CV analysé avec succès'
+    } else {
+      return res.status(400).json({ error: 'Content-Type non supporté' });
+    }
+    
+    // Extraire les données
+    const extractedData = await extractCVData(fileBuffer, filename, supabase);
+    console.log(`✅ Données extraites:`, {
+      nom: extractedData.nom,
+      prenom: extractedData.prenom,
+      email: extractedData.email,
+      metiers: extractedData.metiers,
+      annees_experience: extractedData.annees_experience
+    });
+    
+    // Créer un identifiant unique
+    const fileHash = require('crypto').createHash('md5').update(filename + Date.now()).digest('hex').substring(0, 12);
+    const uniqueId = `cv_${fileHash}`;
+    
+    // Préparer les données pour Supabase
+    const candidatData: any = {
+      nom: extractedData.nom || '',
+      prenom: extractedData.prenom || '',
+      email: extractedData.email || null,
+      telephone: extractedData.telephone || null,
+      metiers: extractedData.metiers || 'À déterminer',
+      postes: extractedData.postes || 'À déterminer',
+      entreprise: extractedData.entreprise || 'À déterminer',
+      profil: extractedData.profil || `CV ${filename}`,
+      
+      // Champs additionnels
+      fichier: uniqueId,
+      cv_url: file_url,
+      cv_filename: filename,
+      raw_text: fileBuffer.toString('utf8').substring(0, 5000),
+      
+      // Niveau et expérience (optionnels)
+      niveau: extractedData.niveau || 'À déterminer',
+      
+      // Compétences et formations
+      competences: extractedData.competences || [],
+      formations: extractedData.formations || [],
+      experiences: extractedData.experiences || [],
+      langues: extractedData.langues || [],
+      
+      // Timestamps
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    
+    // Ajouter annees_experience seulement s'il existe
+    if (extractedData.annees_experience !== undefined) {
+      candidatData.annees_experience = extractedData.annees_experience;
+    }
+    
+    // SAUVEGARDER DANS SUPABASE
+    console.log('💾 Sauvegarde dans Supabase...');
+    const { data, error } = await supabase
+      .from('candidats')
+      .upsert(candidatData, { onConflict: 'fichier' })
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('❌ Erreur sauvegarde Supabase:', error);
+      return res.status(500).json({
+        success: false,
+        error: error.message,
+        extraction: extractedData
       });
     }
     
-    else {
-      return res.status(400).json({ error: 'Content-Type non supporté' });
-    }
+    console.log(`✅ Candidat sauvegardé avec ID: ${data.id}`);
+    
+    // Retourner les données
+    return res.status(200).json({
+      success: true,
+      candidat_id: data.id,
+      candidat: {
+        nom: extractedData.nom || '',
+        prenom: extractedData.prenom || '',
+        email: extractedData.email || null,
+        telephone: extractedData.telephone || null,
+        metiers: extractedData.metiers || 'À déterminer',
+        postes: extractedData.postes || 'À déterminer',
+        entreprise: extractedData.entreprise || 'À déterminer',
+        profil: extractedData.profil || `CV ${filename}`
+      },
+      message: 'CV analysé et sauvegardé avec succès'
+    });
     
   } catch (error: any) {
     console.error('❌ Erreur API parse:', error);

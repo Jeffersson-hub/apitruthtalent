@@ -1,7 +1,7 @@
-//types/candidats.ts
-
+// types/candidats.ts
 export default interface Candidat {
-  id?: string;
+  // Champs obligatoires
+  fichier: string;
   nom: string | null;
   prenom: string | null;
   email: string | null;
@@ -16,8 +16,11 @@ export default interface Candidat {
   langues: any[];
   adresse: string | null;
   linkedin: string | null;
-  fichier: string | null;
   niveau: string | null;
+  
+  // Champs avec valeurs par défaut optionnels
+  annees_experience?: number; // ← Changé à optionnel
+  id?: string;
   statut?: string;
   date_extraction?: string;
   cv_url?: string;
@@ -29,4 +32,6 @@ export default interface Candidat {
   extraction_date?: string;
   file_type?: string;
   links?: string[];
+  created_at?: string;
+  updated_at?: string;
 }
