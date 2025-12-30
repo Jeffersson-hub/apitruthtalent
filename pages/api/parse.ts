@@ -1,9 +1,8 @@
-// pages/api/parse.ts - VERSION CORRIGÉE
+// pages/api/parse.ts - VERSION PROFESSIONNELLE
 import { NextApiRequest, NextApiResponse } from 'next';
 import { IncomingForm } from 'formidable';
 import fs from 'fs';
 import { promisify } from 'util';
-import { extractCVData } from '../../services/documentParser';
 import { createClient } from '@supabase/supabase-js';
 import fetch from 'node-fetch';
 import crypto from 'crypto';
@@ -21,15 +20,14 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-function cleanTextForDatabase(text: string): string {
+// Fonctions de nettoyage
+function cleanText(text: string): string {
   if (!text) return '';
-  
-  // Supprimer les caractères nuls et autres caractères problématiques
   return text
-    .replace(/\x00/g, '') // Supprimer les caractères nuls
-    .replace(/\\u0000/g, '') // Supprimer les séquences Unicode nulles
-    .replace(/[^\x20-\x7E\u00C0-\u017F\n\r\t]/g, ' ') // Garder seulement les caractères imprimables
-    .replace(/\s+/g, ' ') // Normaliser les espaces
+    .replace(/\x00/g, '')
+    .replace(/\\u0000/g, '')
+    .replace(/[^\x20-\x7E\u00C0-\u017F\n\r\t]/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
@@ -37,6 +35,626 @@ function generateUniqueId(filename: string): string {
   const hash = crypto.createHash('md5').update(filename + Date.now()).digest('hex').substring(0, 12);
   return `cv_${hash}`;
 }
+
+// ==================== EXTRACTION PROFESSIONNELLE ====================
+
+async function extractCVData(buffer: Buffer, filename: string): Promise<any> {
+  try {
+    const text = await extractTextFromBuffer(buffer, filename);
+    const cleanText = cleanText(text);
+    
+    console.log(`🔍 Analyse CV: ${filename} (${cleanText.length} caractères)`);
+    
+    // 1. Extraction NOM et PRENOM (séparés correctement)
+    const { nom, prenom } = extractNomPrenomProfessionnel(cleanText, filename);
+    
+    // 2. Extraction CONTACT
+    const { email, telephone } = extractContactProfessionnel(cleanText);
+    
+    // 3. Extraction ADRESSE
+    const adresse = extractAdresseProfessionnelle(cleanText);
+    
+    // 4. Extraction METIERS et POSTES
+    const { metiers, postes } = extractMetiersPostesProfessionnels(cleanText);
+    
+    // 5. Extraction ENTREPRISE actuelle
+    const entreprise = extractEntrepriseActuelle(cleanText);
+    
+    // 6. Extraction PROFIL
+    const profil = extractProfilProfessionnel(cleanText);
+    
+    // 7. Extraction COMPÉTENCES
+    const competences = extractCompetencesProfessionnelles(cleanText);
+    
+    // 8. Extraction EXPÉRIENCES
+    const experiences = extractExperiencesProfessionnelles(cleanText);
+    
+    // 9. Extraction FORMATIONS
+    const formations = extractFormationsProfessionnelles(cleanText);
+    
+    // 10. Extraction LANGUES
+    const langues = extractLanguesProfessionnelles(cleanText);
+    
+    // 11. DÉTERMINER NIVEAU
+    const niveau = determineNiveauProfessionnel(formations, cleanText);
+    
+    // 12. CALCULER ANNÉES EXPÉRIENCE
+    const anneesExperience = calculerAnneesExperienceProfessionnel(experiences);
+    
+    return {
+      nom: nom || '',
+      prenom: prenom || '',
+      email: email || null,
+      telephone: telephone || null,
+      adresse: adresse || null,
+      metiers: metiers || 'À déterminer',
+      postes: postes || 'À déterminer',
+      entreprise: entreprise || 'À déterminer',
+      profil: profil || `CV ${filename}`,
+      competences: competences || [],
+      experiences: experiences || [],
+      formations: formations || [],
+      langues: langues || [],
+      niveau: niveau || 'À déterminer',
+      annees_experience: anneesExperience || 0
+    };
+    
+  } catch (error) {
+    console.error(`❌ Erreur extraction ${filename}:`, error);
+    return getFallbackData(filename);
+  }
+}
+
+async function extractTextFromBuffer(buffer: Buffer, filename: string): Promise<string> {
+  const lower = filename.toLowerCase();
+  
+  try {
+    if (lower.endsWith('.pdf')) {
+      // Pour PDF, utiliser pdf-parse ou pdfjs-dist
+      const pdfParse = require('pdf-parse');
+      const data = await pdfParse(buffer);
+      return data.text || '';
+    } else if (lower.endsWith('.docx')) {
+      const mammoth = require('mammoth');
+      const { value } = await mammoth.extractRawText({ buffer });
+      return value || '';
+    } else if (lower.endsWith('.doc')) {
+      // Pour .doc ancien, conversion basique
+      return buffer.toString('utf8');
+    } else {
+      // Pour images et autres formats
+      return buffer.toString('utf8');
+    }
+  } catch (error) {
+    console.error(`Erreur extraction texte ${filename}:`, error);
+    return buffer.toString('utf8');
+  }
+}
+
+// ==================== FONCTIONS D'EXTRACTION PROFESSIONNELLES ====================
+
+function extractNomPrenomProfessionnel(text: string, filename: string): { nom: string; prenom: string } {
+  // Méthode 1: Chercher dans les premières lignes avec patterns professionnels
+  const lines = text.split('\n').slice(0, 10);
+  
+  for (const line of lines) {
+    const trimmed = line.trim();
+    
+    // Pattern: NOM en majuscules suivi de prénom
+    const nomMajPattern = /^([A-ZÉÈÊËÀÂÄÔÖÛÜÇ\s-]+)\s+([A-ZÉÈÊËÀÂÄÔÖÛÜÇ][a-zéèêëàâäôöûüç\s-]+)$/;
+    const matchMaj = trimmed.match(nomMajPattern);
+    if (matchMaj) {
+      return { nom: matchMaj[1].trim(), prenom: matchMaj[2].trim() };
+    }
+    
+    // Pattern: Prénom + Nom (classique)
+    const pattern = /^([A-ZÉÈÊËÀÂÄÔÖÛÜÇ][a-zéèêëàâäôöûüç]+(?:\s+[A-ZÉÈÊËÀÂÄÔÖÛÜÇ][a-zéèêëàâäôöûüç]+)*)\s+([A-ZÉÈÊËÀÂÄÔÖÛÜÇ][a-zéèêëàâäôöûüç]+)$/;
+    const match = trimmed.match(pattern);
+    if (match) {
+      return { nom: match[2].trim(), prenom: match[1].trim() };
+    }
+  }
+  
+  // Méthode 2: Extraire du nom de fichier
+  const cleanFileName = filename
+    .replace(/\.[^/.]+$/, '')
+    .replace(/CV[_\s-]*/i, '')
+    .replace(/[0-9_-]+/g, ' ')
+    .trim();
+  
+  const nameParts = cleanFileName.split(/\s+/).filter(p => p.length > 1);
+  
+  if (nameParts.length >= 2) {
+    // Dernier mot = nom, reste = prénom
+    return {
+      nom: nameParts[nameParts.length - 1],
+      prenom: nameParts.slice(0, -1).join(' ')
+    };
+  }
+  
+  // Fallback
+  return { nom: '', prenom: 'Candidat' };
+}
+
+function extractContactProfessionnel(text: string): { email: string | null; telephone: string | null } {
+  // EMAIL - Patterns complets
+  const emailPatterns = [
+    /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,
+    /\b[\w.]+@(?:gmail|hotmail|yahoo|outlook|orange|free|sfr|bbox|laposte)\.(?:com|fr|net|org)\b/gi
+  ];
+  
+  let email = null;
+  for (const pattern of emailPatterns) {
+    const matches = text.match(pattern);
+    if (matches && matches[0]) {
+      email = matches[0].toLowerCase();
+      break;
+    }
+  }
+  
+  // TÉLÉPHONE - Patterns français complets
+  const phonePatterns = [
+    /(\+33|0033|0)[1-9](?:[\s.-]?\d{2}){4}/g,
+    /0[1-9](?:[\s.-]?\d{2}){4}/g,
+    /(\+33\s?\(0\)\s?[1-9](?:[\s.-]?\d{2}){4})/g,
+    /(?:téléphone|tel|phone)[:\s]*([0-9\s.\-+()]{10,20})/gi
+  ];
+  
+  let telephone = null;
+  for (const pattern of phonePatterns) {
+    const matches = text.match(pattern);
+    if (matches && matches[0]) {
+      let phone = matches[0].replace(/[\s.\-+()]/g, '');
+      
+      // Nettoyer et formater
+      if (phone.startsWith('0033')) {
+        phone = '0' + phone.substring(4);
+      } else if (phone.startsWith('+33')) {
+        phone = '0' + phone.substring(3);
+      }
+      
+      if (phone.length >= 10) {
+        telephone = phone.substring(0, 10);
+        break;
+      }
+    }
+  }
+  
+  return { email, telephone };
+}
+
+function extractAdresseProfessionnelle(text: string): string | null {
+  // Patterns d'adresse française
+  const addressPatterns = [
+    /(\d{1,5}\s+[A-Za-zéèêëàâäôöûüç\s]+,\s*\d{5}\s+[A-Za-zéèêëàâäôöûüç\s]+)/gi,
+    /(\d{5}\s+[A-Za-zéèêëàâäôöûüç\s]+)/gi,
+    /([A-Za-zéèêëàâäôöûüç\s]+\s+\d{5}\s+[A-Za-zéèêëàâäôöûüç\s]+)/gi,
+    /(?:adresse|address)[:\s]*([^\n]{10,100})/gi
+  ];
+  
+  for (const pattern of addressPatterns) {
+    const matches = text.match(pattern);
+    if (matches && matches[0]) {
+      return matches[0].trim();
+    }
+  }
+  
+  return null;
+}
+
+function extractMetiersPostesProfessionnels(text: string): { metiers: string; postes: string } {
+  const metiersList = [
+    'Développeur', 'Ingénieur', 'Consultant', 'Analyste', 'Architecte',
+    'Chef de projet', 'Manager', 'Directeur', 'Designer', 'Commercial',
+    'Marketing', 'Vendeur', 'Assistant', 'Technicien', 'Administrateur',
+    'Data Scientist', 'DevOps', 'Webmaster', 'Community Manager', 'Recruteur'
+  ];
+  
+  const postesList = [
+    'Fullstack', 'Frontend', 'Backend', 'Senior', 'Junior', 'Confirmé',
+    'Web', 'Mobile', 'Cloud', 'Sécurité', 'Réseau', 'Base de données',
+    'Lead', 'Principal', 'Expert', 'Spécialiste', 'Responsable'
+  ];
+  
+  const foundMetiers = new Set<string>();
+  const foundPostes = new Set<string>();
+  
+  // Chercher les métiers
+  for (const metier of metiersList) {
+    if (text.toLowerCase().includes(metier.toLowerCase())) {
+      foundMetiers.add(metier);
+    }
+  }
+  
+  // Chercher les postes
+  for (const poste of postesList) {
+    if (text.toLowerCase().includes(poste.toLowerCase())) {
+      foundPostes.add(poste);
+    }
+  }
+  
+  // Chercher dans les sections expériences
+  const experienceSection = text.match(/expériences? professionnelles?([\s\S]*?)(?=\n\s*\n|formations?|compétences?|$)/i);
+  if (experienceSection) {
+    const expText = experienceSection[1];
+    for (const metier of metiersList) {
+      if (expText.toLowerCase().includes(metier.toLowerCase())) {
+        foundMetiers.add(metier);
+      }
+    }
+  }
+  
+  return {
+    metiers: Array.from(foundMetiers).slice(0, 3).join(', ') || 'À déterminer',
+    postes: Array.from(foundPostes).slice(0, 3).join(', ') || 'À déterminer'
+  };
+}
+
+function extractEntrepriseActuelle(text: string): string {
+  // Chercher la dernière expérience
+  const lines = text.split('\n');
+  let currentCompany = 'À déterminer';
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    
+    // Chercher "chez" ou "Chez" ou noms d'entreprise en majuscules
+    const chezMatch = line.match(/chez\s+([A-Z][A-Za-zéèêëàâäôöûüç\s&.-]+)/i);
+    if (chezMatch) {
+      currentCompany = chezMatch[1].trim();
+      continue;
+    }
+    
+    // Chercher des noms d'entreprise en majuscules avec contexte
+    if (line.match(/\b(19|20)\d{2}\b/)) {
+      // Ligne avec une date, probablement une expérience
+      const companyMatch = line.match(/(?:chez|à|@)\s+([A-Z][A-Za-zéèêëàâäôöûüç\s&.-]{3,50})/i);
+      if (companyMatch) {
+        currentCompany = companyMatch[1].trim();
+      }
+    }
+  }
+  
+  return currentCompany;
+}
+
+function extractProfilProfessionnel(text: string): string {
+  // Prendre les premières lignes après le nom
+  const lines = text.split('\n');
+  let startIndex = 0;
+  
+  // Trouver où commence le profil (après le nom)
+  for (let i = 0; i < Math.min(5, lines.length); i++) {
+    if (lines[i].trim().length > 5) {
+      startIndex = i + 1;
+      break;
+    }
+  }
+  
+  // Prendre 3-5 lignes après le nom
+  const profileLines = [];
+  for (let i = startIndex; i < Math.min(startIndex + 5, lines.length); i++) {
+    const line = lines[i].trim();
+    if (line && !line.match(/^(téléphone|email|adresse|expérience|formation|compétence)/i)) {
+      profileLines.push(line);
+    }
+  }
+  
+  const profile = profileLines.join(' ').substring(0, 200);
+  return profile || `CV professionnel`;
+}
+
+function extractCompetencesProfessionnelles(text: string): string[] {
+  const competences: string[] = [];
+  
+  // Liste étendue de compétences techniques
+  const technicalSkills = [
+    // Langages
+    'JavaScript', 'TypeScript', 'Python', 'Java', 'PHP', 'C#', 'C++', 'Ruby', 'Go', 'Rust',
+    'Swift', 'Kotlin', 'Scala', 'Perl', 'R', 'MATLAB', 'SQL',
+    // Frameworks Frontend
+    'React', 'Angular', 'Vue.js', 'Svelte', 'Next.js', 'Nuxt.js', 'Gatsby',
+    // Frameworks Backend
+    'Node.js', 'Express', 'Django', 'Flask', 'Spring', 'Laravel', 'Symfony', 'Ruby on Rails',
+    // Bases de données
+    'MySQL', 'PostgreSQL', 'MongoDB', 'Redis', 'Oracle', 'SQL Server', 'Cassandra', 'Elasticsearch',
+    // Cloud & DevOps
+    'AWS', 'Azure', 'Google Cloud', 'Docker', 'Kubernetes', 'Terraform', 'Ansible', 'Jenkins', 'GitLab CI',
+    // Outils
+    'Git', 'GitHub', 'GitLab', 'Jira', 'Confluence', 'Trello', 'Figma', 'Adobe XD', 'Photoshop',
+    // Méthodologies
+    'Agile', 'Scrum', 'Kanban', 'DevOps', 'CI/CD', 'TDD', 'BDD'
+  ];
+  
+  // Chercher dans tout le texte
+  for (const skill of technicalSkills) {
+    if (text.toLowerCase().includes(skill.toLowerCase())) {
+      competences.push(skill);
+    }
+  }
+  
+  // Chercher dans la section compétences
+  const skillsSection = text.match(/compétences?([\s\S]*?)(?=\n\s*\n|expériences?|formations?|$)/i);
+  if (skillsSection) {
+    const skillsText = skillsSection[1];
+    // Extraire les items avec tirets
+    const bulletItems = skillsText.match(/[-•*]\s*([^\n]+)/g);
+    if (bulletItems) {
+      bulletItems.forEach(item => {
+        const skill = item.replace(/^[-•*]\s*/, '').trim();
+        if (skill.length > 2) {
+          competences.push(skill);
+        }
+      });
+    }
+  }
+  
+  // Dédupliquer et limiter
+  return [...new Set(competences)].slice(0, 15);
+}
+
+function extractExperiencesProfessionnelles(text: string): any[] {
+  const experiences: any[] = [];
+  const lines = text.split('\n');
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    
+    // Pattern de date (2020-2023, 2020 - 2023, 2020 à 2023)
+    const datePattern = /(\d{4})\s*[-–àà]\s*(\d{4}|présent|aujourd'hui)/i;
+    const dateMatch = line.match(datePattern);
+    
+    if (dateMatch && line.length > 20) {
+      const experience: any = {
+        periode: dateMatch[0],
+        entreprise: extractCompanyFromExperienceLine(line),
+        poste: extractJobTitleFromExperienceLine(line),
+        description: ''
+      };
+      
+      // Collecter la description (lignes suivantes avec tirets)
+      let j = i + 1;
+      while (j < lines.length && j < i + 10) {
+        const nextLine = lines[j].trim();
+        if (nextLine.startsWith('-') || nextLine.startsWith('•')) {
+          experience.description += nextLine.replace(/^[-•]\s*/, '') + ' ';
+        } else if (nextLine && nextLine.length < 100 && !nextLine.match(datePattern)) {
+          // Petite ligne de description supplémentaire
+          experience.description += nextLine + ' ';
+        } else {
+          break;
+        }
+        j++;
+      }
+      
+      experiences.push(experience);
+      i = j - 1; // Avancer l'index
+    }
+  }
+  
+  return experiences.slice(0, 10);
+}
+
+function extractCompanyFromExperienceLine(line: string): string {
+  const patterns = [
+    /chez\s+([A-Z][A-Za-zéèêëàâäôöûüç\s&.-]+)/i,
+    /à\s+([A-Z][A-Za-zéèêëàâäôöûüç\s&.-]+)/i,
+    /@\s+([A-Z][A-Za-zéèêëàâäôöûüç\s&.-]+)/i,
+    /,\s+([A-Z][A-Za-zéèêëàâäôöûüç\s&.-]+)$/i
+  ];
+  
+  for (const pattern of patterns) {
+    const match = line.match(pattern);
+    if (match) {
+      return match[1].trim();
+    }
+  }
+  
+  return 'Entreprise';
+}
+
+function extractJobTitleFromExperienceLine(line: string): string {
+  // Chercher avant "chez", "à", "à"
+  const beforeCompany = line.split(/chez|à|@|,/i)[0].trim();
+  
+  // Extraire les mots significatifs
+  const words = beforeCompany.split(/\s+/);
+  const significantWords = words.filter(word => 
+    word.length > 3 && 
+    !word.match(/^\d/) &&
+    !['de', 'du', 'des', 'le', 'la', 'les', 'et', 'ou', 'à'].includes(word.toLowerCase())
+  );
+  
+  return significantWords.join(' ') || 'Poste';
+}
+
+function extractFormationsProfessionnelles(text: string): any[] {
+  const formations: any[] = [];
+  const lines = text.split('\n');
+  
+  // Chercher la section formations
+  let inFormationSection = false;
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    
+    // Détecter début section formations
+    if (line.match(/formations?|diplômes?|études?|éducation/i)) {
+      inFormationSection = true;
+      continue;
+    }
+    
+    // Sortir de la section si nouvelle section
+    if (inFormationSection && line.match(/expériences?|compétences?|langues?|projets?/i)) {
+      inFormationSection = false;
+    }
+    
+    // Extraire les formations
+    if (inFormationSection && line) {
+      // Pattern avec dates
+      const datePattern = /(\d{4})\s*[-–]\s*(\d{4})?/;
+      const dateMatch = line.match(datePattern);
+      
+      if (dateMatch || line.match(/(bac|bts|licence|master|doctorat|ingénieur)/i)) {
+        formations.push({
+          diplome: extractDiplomeFromLine(line),
+          etablissement: extractEtablissementFromLine(line),
+          annee: dateMatch ? dateMatch[1] : null,
+          raw: line
+        });
+      }
+    }
+  }
+  
+  // Si pas trouvé, chercher dans tout le texte
+  if (formations.length === 0) {
+    const diplomaPattern = /(bac\s*[a-z]*|bts|licence|master|doctorat|ingénieur)[^,\n]*(\d{4})?/gi;
+    let match;
+    while ((match = diplomaPattern.exec(text)) !== null && formations.length < 5) {
+      formations.push({
+        diplome: match[1].trim(),
+        etablissement: '',
+        annee: match[2] || null,
+        raw: match[0]
+      });
+    }
+  }
+  
+  return formations.slice(0, 5);
+}
+
+function extractDiplomeFromLine(line: string): string {
+  const diplomes = ['BAC', 'BTS', 'DUT', 'Licence', 'Master', 'Doctorat', 'Ingénieur'];
+  for (const diplome of diplomes) {
+    if (line.toUpperCase().includes(diplome.toUpperCase())) {
+      return diplome;
+    }
+  }
+  return 'Diplôme';
+}
+
+function extractEtablissementFromLine(line: string): string {
+  // Supprimer le diplôme et les dates
+  let etablissement = line
+    .replace(/(bac|bts|dut|licence|master|doctorat|ingénieur)[^,\n]*/gi, '')
+    .replace(/\d{4}.*$/, '')
+    .replace(/[^\w\séèêëàâäôöûüç-]/gi, '')
+    .trim();
+  
+  return etablissement || 'Établissement';
+}
+
+function extractLanguesProfessionnelles(text: string): any[] {
+  const langues: any[] = [];
+  
+  // Chercher section langues
+  const languesSection = text.match(/langues?([\s\S]*?)(?=\n\s*\n|$|compétences?|expériences?)/i);
+  
+  if (languesSection) {
+    const languesText = languesSection[1];
+    const lines = languesText.split('\n');
+    
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed) {
+        // Pattern: Langue (Niveau)
+        const langMatch = trimmed.match(/([A-Za-zéèêëàâäôöûüç]+)\s*(?:\(([^)]+)\))?/);
+        if (langMatch) {
+          langues.push({
+            langue: langMatch[1],
+            niveau: langMatch[2] || 'Intermédiaire'
+          });
+        }
+      }
+    }
+  }
+  
+  // Si pas trouvé, chercher les langues courantes
+  if (langues.length === 0) {
+    const commonLanguages = ['Français', 'Anglais', 'Espagnol', 'Allemand', 'Italien'];
+    for (const langue of commonLanguages) {
+      if (text.includes(langue)) {
+        langues.push({ langue, niveau: 'Courant' });
+      }
+    }
+  }
+  
+  return langues.slice(0, 5);
+}
+
+function determineNiveauProfessionnel(formations: any[], text: string): string {
+  // Basé sur les formations
+  for (const formation of formations) {
+    const diplome = formation.diplome?.toUpperCase() || '';
+    
+    if (diplome.includes('DOCTORAT') || diplome.includes('PHD')) return 'Bac+8';
+    if (diplome.includes('MASTER') || diplome.includes('INGÉNIEUR')) return 'Bac+5';
+    if (diplome.includes('LICENCE') || diplome.includes('BACHELOR')) return 'Bac+3';
+    if (diplome.includes('BTS') || diplome.includes('DUT')) return 'Bac+2';
+    if (diplome.includes('BAC')) return 'Bac';
+  }
+  
+  // Basé sur les mentions dans le texte
+  if (text.includes('senior') || text.includes('expert')) return 'Senior';
+  if (text.includes('confirmé')) return 'Confirmé';
+  if (text.includes('junior')) return 'Junior';
+  if (text.includes('débutant')) return 'Débutant';
+  
+  return 'À déterminer';
+}
+
+function calculerAnneesExperienceProfessionnel(experiences: any[]): number {
+  if (!experiences || experiences.length === 0) return 0;
+  
+  const years = new Set<number>();
+  
+  for (const exp of experiences) {
+    const yearMatches = exp.periode?.match(/\b(19|20)\d{2}\b/g);
+    if (yearMatches) {
+      yearMatches.forEach((year: string) => {
+        const y = parseInt(year);
+        if (y >= 1970 && y <= 2025) {
+          years.add(y);
+        }
+      });
+    }
+  }
+  
+  if (years.size >= 2) {
+    const yearArray = Array.from(years);
+    const minYear = Math.min(...yearArray);
+    const maxYear = Math.max(...yearArray);
+    return Math.min(maxYear - minYear, 30);
+  }
+  
+  // Estimation basée sur le nombre d'expériences
+  return Math.min(experiences.length * 2, 20);
+}
+
+function getFallbackData(filename: string): any {
+  const cleanName = filename.replace(/\.[^/.]+$/, '').replace(/CV[_\s-]*/i, '');
+  const nameParts = cleanName.split(/[_\s-]+/).filter(p => p.length > 1);
+  
+  return {
+    nom: nameParts.length > 0 ? nameParts[nameParts.length - 1] : '',
+    prenom: nameParts.length > 1 ? nameParts.slice(0, -1).join(' ') : 'Candidat',
+    email: null,
+    telephone: null,
+    adresse: null,
+    metiers: 'À déterminer',
+    postes: 'À déterminer',
+    entreprise: 'À déterminer',
+    profil: `CV ${filename}`,
+    competences: [],
+    experiences: [],
+    formations: [],
+    langues: [],
+    niveau: 'À déterminer',
+    annees_experience: 0
+  };
+}
+
+// ==================== HANDLER PRINCIPAL ====================
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -65,12 +683,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ error: 'URL manquante' });
       }
       
-      console.log(`📄 Téléchargement depuis Supabase: ${file_url}`);
+      console.log(`📄 Téléchargement CV: ${file_url}`);
       
       const response = await fetch(file_url);
       if (!response.ok) throw new Error(`Échec téléchargement: ${response.status}`);
       
-      // Utiliser arrayBuffer() au lieu de buffer()
       const arrayBuffer = await response.arrayBuffer();
       fileBuffer = Buffer.from(arrayBuffer);
       filename = file_url.split('/').pop() || 'cv';
@@ -95,68 +712,60 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: 'Content-Type non supporté' });
     }
     
-    // Extraire les données
-    const extractedData = await extractCVData(fileBuffer, filename, supabase);
-    console.log(`✅ Données extraites:`, {
+    // Extraire les données avec l'extraction professionnelle
+    const extractedData = await extractCVData(fileBuffer, filename);
+    console.log(`✅ Extraction réussie:`, {
       nom: extractedData.nom,
       prenom: extractedData.prenom,
-      email: extractedData.email,
+      email: extractedData.email ? 'OUI' : 'NON',
+      telephone: extractedData.telephone ? 'OUI' : 'NON',
       metiers: extractedData.metiers
     });
     
-    // Créer un identifiant unique
+    // Préparer pour Supabase
     const uniqueId = generateUniqueId(filename);
-    
-    // Nettoyer le texte brut pour la base de données
     const rawText = fileBuffer.toString('utf8', 0, 5000);
-    const cleanRawText = cleanTextForDatabase(rawText);
     
-    // Préparer les données pour Supabase
     const candidatData: any = {
-      nom: extractedData.nom || '',
-      prenom: extractedData.prenom || '',
-      email: extractedData.email || null,
-      telephone: extractedData.telephone || null,
-      metiers: extractedData.metiers || 'À déterminer',
-      postes: extractedData.postes || 'À déterminer',
-      entreprise: extractedData.entreprise || 'À déterminer',
-      profil: extractedData.profil || `CV ${filename}`,
+      nom: extractedData.nom,
+      prenom: extractedData.prenom,
+      email: extractedData.email,
+      telephone: extractedData.telephone,
+      adresse: extractedData.adresse,
+      metiers: extractedData.metiers,
+      postes: extractedData.postes,
+      entreprise: extractedData.entreprise,
+      profil: extractedData.profil,
       
-      // Champs additionnels
+      // Champs techniques
       fichier: uniqueId,
       cv_url: file_url,
       cv_filename: filename,
-      raw_text: cleanRawText,
+      raw_text: cleanText(rawText),
       
-      // Niveau et expérience
-      niveau: extractedData.niveau || 'À déterminer',
-      
-      // Compétences et formations
-      competences: extractedData.competences || [],
-      formations: extractedData.formations || [],
-      experiences: extractedData.experiences || [],
-      langues: extractedData.langues || [],
+      // Autres données
+      niveau: extractedData.niveau,
+      annees_experience: extractedData.annees_experience,
+      competences: extractedData.competences,
+      formations: extractedData.formations,
+      experiences: extractedData.experiences,
+      langues: extractedData.langues,
       
       // Timestamps
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
     
-    // Ajouter annees_experience seulement s'il existe
-    if (extractedData.annees_experience !== undefined) {
-      candidatData.annees_experience = extractedData.annees_experience;
-    }
-    
-    // SAUVEGARDER DANS SUPABASE
+    // Sauvegarde dans Supabase
     console.log('💾 Sauvegarde dans Supabase...');
-    const { data, error } = await supabase
+    const { data: savedData, error } = await supabase
       .from('candidats')
       .upsert(candidatData, { onConflict: 'fichier' })
       .select()
       .single();
     
     if (error) {
-      console.error('❌ Erreur sauvegarde Supabase:', error);
+      console.error('❌ Erreur Supabase:', error);
       return res.status(500).json({
         success: false,
         error: error.message,
@@ -164,27 +773,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
     
-    console.log(`✅ Candidat sauvegardé avec ID: ${data.id}`);
+    console.log(`✅ Candidat ${savedData.id} sauvegardé`);
     
-    // Retourner les données
     return res.status(200).json({
       success: true,
-      candidat_id: data.id,
+      candidat_id: savedData.id,
       candidat: {
-        nom: extractedData.nom || '',
-        prenom: extractedData.prenom || '',
-        email: extractedData.email || null,
-        telephone: extractedData.telephone || null,
-        metiers: extractedData.metiers || 'À déterminer',
-        postes: extractedData.postes || 'À déterminer',
-        entreprise: extractedData.entreprise || 'À déterminer',
-        profil: extractedData.profil || `CV ${filename}`
+        nom: extractedData.nom,
+        prenom: extractedData.prenom,
+        email: extractedData.email,
+        telephone: extractedData.telephone,
+        adresse: extractedData.adresse,
+        metiers: extractedData.metiers,
+        postes: extractedData.postes,
+        entreprise: extractedData.entreprise,
+        profil: extractedData.profil
       },
-      message: 'CV analysé et sauvegardé avec succès'
+      message: 'CV analysé avec succès'
     });
     
   } catch (error: any) {
-    console.error('❌ Erreur API parse:', error);
+    console.error('❌ Erreur API:', error);
     
     return res.status(500).json({
       success: false,
