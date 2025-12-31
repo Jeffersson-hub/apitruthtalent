@@ -161,109 +161,25 @@ function extractAdresseProfessionnelle(text: string): string | null {
   return null;
 }
 
-// ==================== EXTRACTION COMPÉTENCES (CORRIGÉE) ====================
+// ==================== FONCTIONS D'EXTRACTION AMÉLIORÉES ====================
 
-function extractCompetencesProfessionnelles(text: string): string[] {
-  console.log('🔍 Extraction structurée des compétences...');
+// Nouvelle fonction pour extraire les compétences d'une ligne
+function extractCompetencesFromLine(line: string, competences: string[]): void {
+  if (!line || line.trim() === '') return;
   
-  const competences: string[] = [];
-  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-  
-  // Étape 1: Trouver la section COMPÉTENCES
-  let skillsStartIndex = -1;
-  
-  for (let i = 0; i < lines.length; i++) {
-    const lineUpper = lines[i].toUpperCase();
-    
-    // Recherche exacte de la section
-    if (lineUpper === 'COMPÉTENCES' || 
-        lineUpper === 'COMPETENCES' || 
-        lineUpper === 'SKILLS' ||
-        lineUpper.startsWith('COMPÉTENCES ') ||
-        lineUpper.startsWith('COMPETENCES ') ||
-        lineUpper.startsWith('SKILLS ')) {
-      
-      skillsStartIndex = i;
-      console.log(`📌 Section compétences trouvée ligne ${i}: "${lines[i]}"`);
-      break;
-    }
-  }
-  
-  // Étape 2: Extraire le contenu de la section
-  if (skillsStartIndex !== -1) {
-    const sectionLines: string[] = [];
-    
-    // Prendre les lignes jusqu'à la prochaine section
-    for (let i = skillsStartIndex + 1; i < Math.min(skillsStartIndex + 20, lines.length); i++) {
-      const line = lines[i];
-      
-      // Arrêter à la prochaine section majeure
-      const nextLineUpper = line.toUpperCase();
-      if (nextLineUpper.includes('EXPÉRIENCE') || 
-          nextLineUpper.includes('FORMATION') || 
-          nextLineUpper.includes('LANGUES') ||
-          nextLineUpper.includes('PROJETS') ||
-          nextLineUpper.includes('CENTRE') ||
-          line === '' && i > skillsStartIndex + 3) {
-        break;
-      }
-      
-      if (line && line.trim()) {
-        sectionLines.push(line);
-      }
-    }
-    
-    console.log(`📝 ${sectionLines.length} lignes dans la section compétences`);
-    
-    // Étape 3: Analyser chaque ligne
-    for (const line of sectionLines) {
-      // Format 1: Ligne avec tiret/puce (• JavaScript, React, Node.js)
-      if (line.match(/^[-•*]\s/)) {
-        const content = line.substring(line.indexOf(' ') + 1).trim();
-        processCompetenceLine(content, competences);
-      }
-      // Format 2: Ligne numérotée (1. JavaScript)
-      else if (line.match(/^\d+[\.\)]\s/)) {
-        const content = line.replace(/^\d+[\.\)]\s+/, '').trim();
-        processCompetenceLine(content, competences);
-      }
-      // Format 3: Ligne simple (JavaScript, React, Node.js)
-      else {
-        processCompetenceLine(line, competences);
-      }
-    }
-  }
-  
-  // Étape 4: Si section non trouvée, chercher par pattern
-  if (competences.length === 0) {
-    console.log('🔍 Recherche alternative des compétences...');
-    
-    // Pattern: "Compétences : JavaScript, React"
-    const pattern = /compétences?\s*[:•-]\s*([^\n]{10,200})/gi;
-    let match;
-    
-    while ((match = pattern.exec(text)) !== null && competences.length < 10) {
-      const skillsText = match[1].trim();
-      console.log(`📌 Pattern trouvé: "${skillsText.substring(0, 50)}..."`);
-      processCompetenceLine(skillsText, competences);
-    }
-  }
-  
-  // Étape 5: Nettoyage final
-  const cleaned = cleanCompetencesList(competences);
-  
-  console.log(`✅ ${cleaned.length} compétences extraites:`, cleaned.slice(0, 10));
-  return cleaned;
-}
-
-function processCompetenceLine(line: string, competences: string[]): void {
   // Nettoyer la ligne
-  let cleanLine = line
-    .replace(/\([^)]*\)/g, '') // Enlever les parenthèses (niveaux)
-    .replace(/\s+/g, ' ') // Normaliser les espaces
+  let cleanLine = line.trim();
+  
+  // Enlever les préfixes communs
+  cleanLine = cleanLine
+    .replace(/^[-•*✓]\s*/, '')
+    .replace(/^\d+[\.\)]\s*/, '')
+    .replace(/^\s*-\s*/, '')
     .trim();
   
-  // Séparateurs courants dans les CV
+  if (!cleanLine || cleanLine.length < 2) return;
+  
+  // Séparateurs courants
   const separators = /[,;\/\|]\s*/;
   
   if (cleanLine.match(separators)) {
@@ -274,18 +190,19 @@ function processCompetenceLine(line: string, competences: string[]): void {
       part = part.trim();
       
       if (isValidCompetence(part) && part.length > 2 && part.length < 50) {
-        // Formater la compétence
         const formatted = formatCompetence(part);
         if (formatted && !competences.includes(formatted)) {
           competences.push(formatted);
         }
       }
     }
-  } else if (isValidCompetence(cleanLine)) {
+  } else {
     // Une seule compétence
-    const formatted = formatCompetence(cleanLine);
-    if (formatted && !competences.includes(formatted)) {
-      competences.push(formatted);
+    if (isValidCompetence(cleanLine)) {
+      const formatted = formatCompetence(cleanLine);
+      if (formatted && !competences.includes(formatted)) {
+        competences.push(formatted);
+      }
     }
   }
 }
@@ -354,124 +271,253 @@ function cleanCompetencesList(competences: string[]): string[] {
   return cleaned.slice(0, 15);
 }
 
-// ==================== EXTRACTION EXPÉRIENCES ====================
-
-function extractExperiencesProfessionnelles(text: string): any[] {
-  console.log('🔍 Extraction structurée des expériences...');
+// Version améliorée de l'extraction des compétences
+function extractCompetencesProfessionnellesV2(text: string): string[] {
+  const competences: string[] = [];
+  const lines = text.split('\n').map(l => l.trim());
   
-  const experiences: any[] = [];
-  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  console.log('🔍 Recherche des compétences (version améliorée)...');
   
-  // Trouver la section EXPÉRIENCES
-  let expStartIndex = -1;
+  // Rechercher différentes variantes de la section compétences
+  const skillsKeywords = [
+    'COMPETENCES', 'COMPÉTENCES', 'SKILLS',
+    'COMPETENCE', 'COMPÉTENCE', 'SAVOIR FAIRE',
+    'QUALITES', 'QUALITÉS', 'APTITUDES',
+    'SOFT SKILLS', 'HARD SKILLS', 'SAVOIR ETRE'
+  ];
   
+  // Chercher toutes les occurrences possibles
   for (let i = 0; i < lines.length; i++) {
-    const lineUpper = lines[i].toUpperCase();
+    const lineUpper = lines[i].toUpperCase().replace(/\s+/g, ' ');
     
-    if (lineUpper.includes('EXPÉRIENCE PROFESSIONNELLE') || 
-        lineUpper.includes('EXPERIENCE PROFESSIONNELLE') ||
-        lineUpper.includes('EXPÉRIENCES') ||
-        lineUpper.includes('EXPERIENCES') ||
-        lineUpper === 'EXPÉRIENCE' ||
-        lineUpper === 'EXPERIENCE') {
+    // Vérifier si cette ligne contient un mot-clé de compétences
+    const isSkillsSection = skillsKeywords.some(keyword => 
+      lineUpper.includes(keyword) || 
+      lineUpper.startsWith(keyword) ||
+      (lineUpper.length < 20 && keyword.includes(lineUpper))
+    );
+    
+    if (isSkillsSection) {
+      console.log(`📌 Section compétences détectée ligne ${i}: "${lines[i]}"`);
       
-      expStartIndex = i;
-      console.log(`📌 Section expériences trouvée ligne ${i}`);
+      // Analyser les 15 lignes suivantes
+      for (let j = i + 1; j < Math.min(i + 15, lines.length); j++) {
+        const currentLine = lines[j];
+        
+        // Arrêter si on atteint une nouvelle section
+        if (currentLine.match(/^[A-Z\s]{3,}$/) || 
+            currentLine.match(/EXPÉRIENCE|FORMATION|LANGUES|PROJETS|CENTRES|CONTACT/i) ||
+            currentLine === '' && j > i + 3) {
+          break;
+        }
+        
+        // Extraire les compétences de cette ligne
+        extractCompetencesFromLine(currentLine, competences);
+      }
+    }
+  }
+  
+  // Si aucune section trouvée, chercher dans tout le texte
+  if (competences.length === 0) {
+    console.log('🔍 Recherche alternative des compétences...');
+    
+    // Chercher les listes avec puces
+    const bulletedItems = text.match(/[-•*✓]\s+([^\n]{2,50})/g) || [];
+    bulletedItems.forEach(item => {
+      const skill = item.replace(/^[-•*✓]\s+/, '').trim();
+      if (skill && skill.length > 2 && skill.length < 50) {
+        competences.push(skill);
+      }
+    });
+    
+    // Chercher les patterns de compétences
+    const pattern = /compétences?\s*[:•-]\s*([^\n]{10,200})/gi;
+    let match;
+    
+    while ((match = pattern.exec(text)) !== null && competences.length < 10) {
+      const skillsText = match[1].trim();
+      extractCompetencesFromLine(skillsText, competences);
+    }
+  }
+  
+  return cleanCompetencesList(competences);
+}
+
+function parseExperienceLine(line: string): any {
+  // Extraire les dates
+  const datePatterns = [
+    { regex: /(\d{4})\s*[-–]\s*(\d{4})/, start: 1, end: 2 },
+    { regex: /De\s+(\w+\s+\d{4})\s+à\s+(\w+\s+\d{4})/, start: 1, end: 2 },
+    { regex: /Depuis\s+(\w+\s+\d{4})/, start: 1, end: null },
+    { regex: /(\w+\s+\d{4})\s+[-–]\s+(\w+\s+\d{4})/, start: 1, end: 2 },
+    { regex: /(\d{4})\s*:\s*/, start: 1, end: null },
+    { regex: /^(\w+\s+\d{4})\s*$/, start: 1, end: null }
+  ];
+  
+  let dateDebut = null;
+  let dateFin = null;
+  let enCours = false;
+  
+  for (const pattern of datePatterns) {
+    const match = line.match(pattern.regex);
+    if (match) {
+      dateDebut = match[pattern.start];
+      dateFin = pattern.end ? match[pattern.end] : null;
+      enCours = !pattern.end;
       break;
     }
   }
   
-  // Extraire les expériences
-  if (expStartIndex !== -1) {
-    let currentExp: any = null;
+  // Extraire poste et entreprise
+  let poste = 'Poste';
+  let entreprise = 'Entreprise';
+  
+  // Chercher "chez" ou "à"
+  const chezMatch = line.match(/chez\s+([^,\n]+)/i);
+  const aMatch = line.match(/à\s+([^,\n]+)/i);
+  
+  if (chezMatch) {
+    entreprise = chezMatch[1].trim();
+    poste = line.split(/chez/i)[0].replace(/\d{4}.*$/, '').trim();
+  } else if (aMatch) {
+    entreprise = aMatch[1].trim();
+    poste = line.split(/à/i)[0].replace(/\d{4}.*$/, '').trim();
+  } else {
+    // Essayer d'extraire le premier groupe de mots significatifs
+    const words = line.split(/\s+/).filter(w => w.length > 3 && !w.match(/\d{4}/));
+    poste = words.slice(0, 3).join(' ');
     
-    for (let i = expStartIndex + 1; i < lines.length; i++) {
+    // Chercher un nom d'entreprise en majuscules
+    const companyMatch = line.match(/\b([A-Z][A-Za-zéèêëàâäôöûüç\s&.-]{3,})\b/);
+    if (companyMatch && companyMatch[1] !== poste) {
+      entreprise = companyMatch[1].trim();
+    }
+  }
+  
+  // Nettoyer
+  poste = poste.replace(/^[-•*]\s*/, '').replace(/[:\-]$/, '').trim();
+  entreprise = entreprise.replace(/^[-•*]\s*/, '').trim();
+  
+  return {
+    poste: poste || 'Poste',
+    entreprise: entreprise || 'Entreprise',
+    description: '',
+    date_debut: dateDebut,
+    date_fin: dateFin,
+    en_cours: enCours
+  };
+}
+
+// Version améliorée de l'extraction des expériences
+function extractExperiencesProfessionnellesV2(text: string): any[] {
+  const experiences: any[] = [];
+  const lines = text.split('\n').map(l => l.trim());
+  
+  console.log('🔍 Recherche des expériences (version améliorée)...');
+  
+  // Chercher la section expériences
+  const expKeywords = ['EXPÉRIENCE PROFESSIONNELLE', 'EXPERIENCE PROFESSIONNELLE', 
+                      'EXPÉRIENCES', 'EXPERIENCES', 'EMPLOI', 'TRAVAIL', 'PARCOURS'];
+  
+  let expIndex = -1;
+  
+  for (let i = 0; i < lines.length; i++) {
+    const lineUpper = lines[i].toUpperCase();
+    
+    if (expKeywords.some(keyword => 
+        lineUpper.includes(keyword) || 
+        lineUpper.startsWith(keyword) ||
+        lineUpper === keyword)) {
+      expIndex = i;
+      console.log(`📌 Section expériences trouvée ligne ${i}: "${lines[i]}"`);
+      break;
+    }
+  }
+  
+  // Si section trouvée, extraire
+  if (expIndex !== -1) {
+    let currentExp: any = null;
+    let collectingDescription = false;
+    
+    for (let i = expIndex + 1; i < lines.length; i++) {
       const line = lines[i];
       
-      // Arrêter à la prochaine section
-      const lineUpper = line.toUpperCase();
-      if (lineUpper.includes('FORMATION') || 
-          lineUpper.includes('EDUCATION') ||
-          lineUpper.includes('COMPÉTENCES') ||
-          lineUpper.includes('LANGUES')) {
+      // Arrêter à la prochaine section majeure
+      if (line.match(/^(FORMATION|EDUCATION|COMPETENCES|LANGUES|PROJETS|DIPLOMES|CENTRES|CONTACT|COORDONNEES)$/i)) {
+        if (currentExp) {
+          currentExp.description = currentExp.description ? currentExp.description.trim() : '';
+          experiences.push(currentExp);
+        }
         break;
       }
       
-      // Détecter une nouvelle expérience (ligne avec dates)
-      const dateMatch = line.match(/(\d{4})\s*[-–à]\s*(\d{4}|présent|aujourd'hui|actuel)/i);
-      const companyMatch = line.match(/chez\s+([^,\n]+)/i) || line.match(/à\s+([^,\n]+)/i);
+      // Détecter une nouvelle expérience (ligne avec date)
+      const datePatterns = [
+        /(\d{4})\s*[-–]\s*(\d{4}|présent|aujourd'hui|actuel)/i,
+        /De\s+(\w+\s+\d{4})\s+à\s+(\w+\s+\d{4}|présent)/i,
+        /(\w+\s+\d{4})\s+[-–]\s+(\w+\s+\d{4})/i,
+        /Depuis\s+(\w+\s+\d{4})/i,
+        /(\w+\s+\d{4})\s*$/i,
+        /^(\d{4})\s*:\s*/i,
+        /^(\w+\s+\d{4})\s*$/i
+      ];
       
-      if (dateMatch || (line.length > 10 && line.length < 100 && !line.startsWith('-'))) {
+      let isNewExp = false;
+      for (const pattern of datePatterns) {
+        if (pattern.test(line)) {
+          isNewExp = true;
+          break;
+        }
+      }
+      
+      // Détecter aussi par format (ligne courte avec mots significatifs)
+      if (!isNewExp && line.length > 10 && line.length < 100 && 
+          !line.startsWith('-') && !line.startsWith('•') && !line.startsWith('✓') &&
+          (line.includes('chez') || line.includes('Chez') || 
+           line.includes('à') || line.match(/[A-Z][a-z]+/) ||
+           line.match(/[A-Z]{2,}/))) {
+        isNewExp = true;
+      }
+      
+      if (isNewExp) {
         // Sauvegarder l'expérience précédente
         if (currentExp) {
+          currentExp.description = currentExp.description ? currentExp.description.trim() : '';
           experiences.push(currentExp);
         }
         
         // Nouvelle expérience
-        currentExp = {
-          poste: extractPosteFromLine(line),
-          entreprise: companyMatch ? companyMatch[1].trim() : extractCompanyFromLine(line),
-          description: '',
-          date_debut: dateMatch ? dateMatch[1] : null,
-          date_fin: dateMatch ? (dateMatch[2].match(/\d{4}/) ? dateMatch[2] : null) : null,
-          en_cours: dateMatch ? (dateMatch[2].toLowerCase().includes('présent') || 
-                                dateMatch[2].toLowerCase().includes('aujourd') ||
-                                dateMatch[2].toLowerCase().includes('actuel')) : false
-        };
-      }
-      // Description (lignes avec tirets)
-      else if (currentExp && (line.startsWith('-') || line.startsWith('•'))) {
-        currentExp.description += line.substring(1).trim() + ' ';
-      }
-      // Autre information
-      else if (currentExp && line.length > 5 && line.length < 200) {
-        if (!currentExp.poste && line.length < 50) {
-          currentExp.poste = line;
-        } else if (!currentExp.entreprise && line.length < 50) {
-          currentExp.entreprise = line;
+        currentExp = parseExperienceLine(line);
+        collectingDescription = true;
+        
+      } else if (currentExp && collectingDescription && line && line.trim() !== '') {
+        // Ajouter à la description
+        if (line.startsWith('-') || line.startsWith('•') || line.startsWith('✓')) {
+          if (!currentExp.description) currentExp.description = '';
+          currentExp.description += line.substring(1).trim() + ' ';
+        } else if (line.length < 100 && !line.match(/^\s*$/)) {
+          // Compléter le poste ou l'entreprise si manquant
+          if (!currentExp.poste || currentExp.poste === 'Poste') {
+            currentExp.poste = line;
+          } else if (!currentExp.entreprise || currentExp.entreprise === 'Entreprise') {
+            // Vérifier que ce n'est pas déjà le poste
+            if (line !== currentExp.poste) {
+              currentExp.entreprise = line;
+            }
+          }
         }
       }
     }
     
     // Ajouter la dernière expérience
     if (currentExp) {
+      currentExp.description = currentExp.description ? currentExp.description.trim() : '';
       experiences.push(currentExp);
     }
   }
   
   console.log(`✅ ${experiences.length} expériences extraites`);
-  return experiences.slice(0, 10);
-}
-
-function extractPosteFromLine(line: string): string {
-  // Chercher avant "chez", "à", ","
-  const parts = line.split(/chez|à|,/i);
-  if (parts[0]) {
-    // Enlever les dates
-    const withoutDates = parts[0].replace(/\d{4}.*$/, '').trim();
-    if (withoutDates.length > 3) {
-      return withoutDates;
-    }
-  }
-  
-  // Prendre les premiers mots significatifs
-  const words = line.split(/\s+/).filter(w => w.length > 3);
-  return words.slice(0, 3).join(' ') || 'Poste';
-}
-
-function extractCompanyFromLine(line: string): string {
-  // Chercher après "chez", "à"
-  const chezMatch = line.match(/chez\s+([^,\n]+)/i);
-  if (chezMatch) return chezMatch[1].trim();
-  
-  const aMatch = line.match(/à\s+([^,\n]+)/i);
-  if (aMatch) return aMatch[1].trim();
-  
-  // Chercher des noms d'entreprise en majuscules
-  const companyMatch = line.match(/\b([A-Z][A-Za-zéèêëàâäôöûüç\s&.-]{3,50})\b/);
-  if (companyMatch) return companyMatch[1].trim();
-  
-  return 'Entreprise';
+  return experiences;
 }
 
 // ==================== EXTRACTION METIERS ET POSTES ====================
@@ -735,11 +781,11 @@ async function extractCVData(buffer: Buffer, filename: string): Promise<any> {
     // 3. Extraction ADRESSE
     const adresse = extractAdresseProfessionnelle(cleanedText);
     
-    // 4. Extraction COMPÉTENCES (STRUCTURÉE)
-    const competences = extractCompetencesProfessionnelles(cleanedText);
+    // 4. Extraction COMPÉTENCES (VERSION AMÉLIORÉE)
+    const competences = extractCompetencesProfessionnellesV2(cleanedText);
     
-    // 5. Extraction EXPÉRIENCES avec DATES (STRUCTURÉE)
-    const experiences = extractExperiencesProfessionnelles(cleanedText);
+    // 5. Extraction EXPÉRIENCES (VERSION AMÉLIORÉE)
+    const experiences = extractExperiencesProfessionnellesV2(cleanedText);
     
     // 6. Extraction FORMATIONS
     const formations = extractFormationsProfessionnelles(cleanedText);
@@ -858,7 +904,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const uniqueId = generateUniqueId(filename);
     const rawText = fileBuffer.toString('utf8', 0, 5000);
     
-       
     const candidatData: any = {
       nom: extractedData.nom,
       prenom: extractedData.prenom,
