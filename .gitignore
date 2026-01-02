@@ -1,6 +1,15 @@
 # Node modules
 node_modules/
 
+# virtualenv
+.venv/
+venv/
+ENV/
+env/
+# python caches
+__pycache__/
+*.py[cod]
+
 # Build output
 dist/
 out/
@@ -42,7 +51,3 @@ pnpm-lock.yaml
 # Configuration spécifique aux environnements
 /vercel.json    # Supprimez cette ligne si vous la gardez pour Vercel
 /render.yaml    # Supprimez cette ligne si vous la gardez pour Render
-
-# Décommenter UNE SEULE des deux lignes ci-dessus selon votre besoin
-node_modules
-.venv/
