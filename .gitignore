@@ -52,3 +52,4 @@ pnpm-lock.yaml
 /vercel.json    # Supprimez cette ligne si vous la gardez pour Vercel
 /render.yaml    # Supprimez cette ligne si vous la gardez pour Render
 .venv/
+.venv/
