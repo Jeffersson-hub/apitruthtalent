@@ -46,25 +46,28 @@ export async function extractCVData(buffer: Buffer, filename: string, _supabase:
     // 4. Calculer les années d'expérience
     const anneesExperience = calculateAnneesExperience(experiences);
     
-    // 5. Construire le candidat
+    // 5. Construire le candidat (respecter l'interface Candidat)
     const candidat: Candidat = {
       fichier: filename,
-      nom,
-      prenom,
-      email,
-      telephone,
+      nom: nom || null,
+      prenom: prenom || null,
+      email: email || null,
+      telephone: telephone || null,
       poste: postes.length > 0 ? postes[0] : null,
-      entreprise,
-      profil,
-      competences: competences.slice(0, 20),
-      metiers: metiers.slice(0, 5),
-      formations: formations.slice(0, 10),
-      experiences: experiences.slice(0, 10),
-      langues,
-      adresse,
-      linkedin,
-      niveau,
-      
+      entreprise: entreprise || null,
+      profil: profil || null,
+      competences: Array.isArray(competences) ? competences.slice(0, 20) : [],
+      metiers: Array.isArray(metiers) ? metiers.slice(0, 5) : [],
+      formations: Array.isArray(formations) ? formations.slice(0, 10) : [],
+      experiences: Array.isArray(experiences) ? experiences.slice(0, 10) : [],
+      langues: Array.isArray(langues) ? langues : [],
+      adresse: adresse || null,
+      linkedin: linkedin || null,
+      niveau: niveau || null,
+
+      // Nom du fichier uploadé / stocké
+      cv_filename: filename,
+
       // Propriétés optionnelles
       annees_experience: anneesExperience, // ← Ajouté ici
       postes: postes.slice(0, 5),
@@ -113,6 +116,7 @@ function createCandidatVide(filename: string): Candidat {
     adresse: null,
     linkedin: null,
     niveau: null,
+    cv_filename: filename,
     source_analyse: 'erreur'
     // annees_experience est optionnel, pas besoin de l'inclure ici
   };
@@ -313,12 +317,11 @@ function extractProfilFromText(_text: string): string | null {
 }
 
 function extractEntreprisePrincipale(_experiences: any[]): string | null {
-  if (_experiences.length === 0) return null;
+  if (!_experiences || _experiences.length === 0) return null;
   return _experiences[0].entreprise || null;
 }
 
-// Dans services/documentParser.ts, ajoutez cette fonction :
-
+// Nettoyage du texte
 function cleanExtractedText(text: string): string {
   if (!text) return '';
   
@@ -330,7 +333,7 @@ function cleanExtractedText(text: string): string {
     .trim();
 }
 
-// Modifiez readText pour utiliser le nettoyage :
+// Lecture et nettoyage du texte depuis Buffer
 async function readText(buffer: Buffer, filename: string): Promise<string> {
   const lower = filename.toLowerCase();
   

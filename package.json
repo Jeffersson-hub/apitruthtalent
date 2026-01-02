@@ -28,7 +28,8 @@
     "pdfjs-dist": "^5.4.54",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "tesseract.js": "^5.1.1"
+    "tesseract.js": "^5.1.1",
+    "run-worker": "ts-node scripts/run-worker.ts"
   },
   "devDependencies": {
     "@swc/core": "^1.13.4",

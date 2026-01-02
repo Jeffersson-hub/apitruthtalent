@@ -34,4 +34,7 @@ export default interface Candidat {
   links?: string[];
   created_at?: string;
   updated_at?: string;
+
+  // Ajouté : nom du fichier côté storage / upload (nullable)
+  cv_filename?: string | null;
 }
