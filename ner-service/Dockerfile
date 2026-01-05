@@ -1,28 +1,27 @@
-# Dockerfile pour microservice NER (CPU)
-FROM python:3.10-slim
-
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
+# ner-service/Dockerfile
+# Utilise Alpine pour être léger
+FROM python:3.10-alpine
 
 WORKDIR /app
 
-# Installer dépendances système nécessaires (optionnel)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential git && \
-    rm -rf /var/lib/apt/lists/*
+# Installer les dépendances système minimales
+RUN apk add --no-cache gcc musl-dev linux-headers
 
-# Copier requirements et installer (torch installé via index-url si besoin)
-COPY ner-service/requirements.txt /app/requirements.txt
+# Copier requirements d'abord pour optimiser le cache
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Installer pip packages
-RUN python -m pip install --upgrade pip
-# (si problème d'installation torch, remplacer l'étape par installation spécifique)
-RUN python -m pip install -r /app/requirements.txt
+# Copier le code source
+COPY main.py .
 
-# Copier le code
-COPY ner-service /app/ner-service
-WORKDIR /app/ner-service
+# Variables d'environnement pour optimisation
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV UVICORN_WORKERS=1
+ENV PORT=10000
 
-EXPOSE 8000
+# Exposer le port
+EXPOSE 10000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+# Commande de démarrage
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "10000", "--workers", "1"]
