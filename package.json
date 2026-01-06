@@ -1,49 +1,31 @@
 {
   "name": "apitruthtalent",
   "version": "1.0.0",
-  "type": "module",
+  "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "lint": "next lint"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.56.0",
-    "@types/formidable": "^3.4.5",
-    "@types/natural": "^5.1.5",
-    "@types/pdfjs-dist": "^2.10.377",
-    "@vercel/speed-insights": "^1.2.0",
-    "body-parser": "^1.20.2",
-    "buffer": "^6.0.3",
-    "chrono-node": "^2.9.0",
-    "deno": "^2.4.4",
-    "dotenv": "^16.6.1",
-    "express": "^4.19.2",
-    "formidable": "^3.5.4",
-    "fuse": "^0.12.1",
-    "fuse.js": "^7.1.0",
-    "mammoth": "^1.11.0",
-    "multer": "^2.0.2",
-    "natural": "^8.1.0",
-    "next": "^15.5.7",
-    "node-fetch": "^3.3.2",
-    "pdf-parse": "^1.1.4",
-    "pdfjs-dist": "^5.4.54",
-    "react": "^19.1.1",
-    "react-dom": "^19.1.1",
-    "run-worker": "ts-node scripts/run-worker.ts",
-    "tesseract.js": "^5.1.1"
+    "next": "14.0.4",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "@supabase/supabase-js": "^2.38.0",
+    "formidable": "^2.1.1",
+    "node-fetch": "^2.6.7",
+    "pdf-parse": "^1.1.1",
+    "mammoth": "^1.6.0",
+    "crypto": "^1.0.1"
   },
   "devDependencies": {
-    "@swc/core": "^1.13.4",
-    "@types/dotenv": "^6.1.1",
-    "@types/express": "^5.0.3",
-    "@types/multer": "^2.0.0",
-    "@types/node": "^22.19.2",
-    "@types/pdf-parse": "^1.1.5",
-    "@types/react": "^19.2.7",
-    "eslint": "^9.34.0",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.9.2"
+    "@types/node": "20.10.5",
+    "@types/react": "18.2.45",
+    "@types/react-dom": "18.2.18",
+    "@types/formidable": "^2.0.5",
+    "typescript": "5.3.3",
+    "eslint": "8.56.0",
+    "eslint-config-next": "14.0.4"
   }
 }
