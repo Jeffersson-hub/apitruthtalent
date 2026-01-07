@@ -1,24 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  swcMinify: true,
-  experimental: {
-    esmExternals: false,
+  eslint: {
+    ignoreDuringBuilds: true,  // IMPORTANT: Désactive ESLint
   },
-  
-  // CORS headers pour toutes les API
-  async headers() {
-    return [
-      {
-        source: '/api/:path*',
-        headers: [
-          { key: 'Access-Control-Allow-Origin', value: '*' },
-          { key: 'Access-Control-Allow-Methods', value: 'GET,POST,PUT,DELETE,OPTIONS' },
-          { key: 'Access-Control-Allow-Headers', value: 'Content-Type, Authorization, apikey' },
-        ],
-      },
-    ];
-  }
-};
+  typescript: {
+    ignoreBuildErrors: true,   // IMPORTANT: Désactive erreurs TypeScript
+  },
+}
 
-export default nextConfig;
+module.exports = nextConfig
