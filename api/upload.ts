@@ -1,7 +1,7 @@
 // pages/api/upload.ts
 // 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { supabase } from '../../utils/supabase';
+import { supabase } from '../utils/supabase';
 import formidable from 'formidable';
 import fs from 'fs';
 

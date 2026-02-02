@@ -1,5 +1,5 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { AffindaEnhancedService } from '../../services/affindaEnhancedService';
+import { AffindaEnhancedService } from '../services/affindaEnhancedService';
 
 const affindaService = new AffindaEnhancedService();
 

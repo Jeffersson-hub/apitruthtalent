@@ -1,6 +1,6 @@
 // pages/api/extract-cv.ts
 import { NextApiRequest, NextApiResponse } from 'next';
-import { LightNERService } from '../../services/nerService';
+import { LightNERService } from '../services/nerService';
 
 const nerService = new LightNERService(process.env.NER_SERVICE_URL || 'http://localhost:10000');
 

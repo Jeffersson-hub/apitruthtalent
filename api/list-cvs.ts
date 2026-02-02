@@ -1,6 +1,6 @@
 // routes/list-cvs.ts
 import { Router } from "express";
-import { CVLister } from "../../services/cvLister";
+import { CVLister } from "../services/cvLister";
 
 const router = Router();
 const cvLister = new CVLister();

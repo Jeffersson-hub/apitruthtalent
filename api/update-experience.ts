@@ -1,7 +1,7 @@
 // pages/api/update-experience.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { supabase } from '../../utils/supabase';
-import { calculateTotalExperience } from '../../utils/experience-calculator';
+import { supabase } from '../utils/supabase';
+import { calculateTotalExperience } from '../utils/experience-calculator';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
     // CORS
