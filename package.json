@@ -1,36 +1,47 @@
 {
-  "name": "apitruthtalent",
-  "version": "1.0.0",
-  "private": true,
+  "name": "truth-talent-cv-engine",
+  "version": "3.0.0",
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "build:vercel": "next build",
+    "build:docker": "docker build -t cv-parser .",
+    "deploy:vercel": "vercel --prod",
+    "deploy:railway": "railway up",
+    "deploy:supabase": "supabase functions deploy"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.38.0",
-    "compromise": "^14.11.0",
-    "crypto": "^1.0.1",
-    "express": "^5.2.1",
-    "formidable": "^2.1.1",
-    "franc-min": "^6.2.0",
-    "mammoth": "^1.6.0",
     "next": "14.0.4",
-    "node-fetch": "^2.6.7",
-    "pdf-parse": "^1.1.1",
-    "pdfjs-dist": "^3.11.174",
     "react": "18.2.0",
-    "react-dom": "18.2.0"
+    "react-dom": "18.2.0",  
+    "pdf-parse": "^1.1.1",
+    "mammoth": "^1.6.0",
+    "pdfjs-dist": "^4.0.379",
+    "chrono-node": "^2.7.3",
+    "fuse.js": "^7.0.0",
+    "compromise": "^14.14.5",
+    "node-fetch": "^3.3.2",
+    "formdata-polyfill": "^4.0.10",
+    "web-streams-polyfill": "^3.2.1",
+    "@supabase/supabase-js": "^2.38.0",
+    "@upstash/redis": "^1.22.0",
+    "zod": "^3.22.4",
+    "@vercel/analytics": "^1.0.0"
   },
   "devDependencies": {
-    "@types/formidable": "^2.0.5",
     "@types/node": "20.10.5",
-    "@types/pdfjs-dist": "^2.10.377",
     "@types/react": "18.2.45",
     "@types/react-dom": "18.2.18",
+    "@types/pdf-parse": "^1.1.4",
+    "@types/fuse.js": "^7.0.2",
+    "typescript": "5.3.3",
     "eslint": "8.56.0",
-    "eslint-config-next": "14.0.4",
-    "typescript": "5.3.3"
+    "eslint-config-next": "14.0.4"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

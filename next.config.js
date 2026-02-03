@@ -1,28 +1,43 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Désactiver les pages si non utilisées
-  output: 'standalone',
-  // Pour Vercel Edge Functions
+  // Hybrid: API Routes sur Node.js, Pages sur Edge
   experimental: {
-    runtime: 'edge'
+    serverComponentsExternalPackages: [
+      'pdf-parse', 
+      'mammoth', 
+      'pdfjs-dist',
+      'chrono-node',
+      'fuse.js'
+    ],
   },
-  // Configurer les tailles de body
-  api: {
-    bodyParser: {
-      sizeLimit: '10mb',
-    },
-    responseLimit: false,
+  
+  // Output adaptatif
+  output: process.env.NODE_ENV === 'production' ? 'standalone' : undefined,
+  
+  // Headers CORS
+  async headers() {
+    return [
+      {
+        source: '/api/:path*',
+        headers: [
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+          { key: 'Access-Control-Allow-Methods', value: 'GET,POST,PUT,DELETE,OPTIONS' },
+          { key: 'Access-Control-Allow-Headers', value: 'Content-Type, Authorization' },
+        ],
+      },
+    ];
   },
-  // Désactiver certaines fonctionnalités inutiles
-  images: {
-    unoptimized: true,
-  },
-  // Ignorer les erreurs de TypeScript pendant le build
-  typescript: {
-    ignoreBuildErrors: true,
-  },
-  eslint: {
-    ignoreDuringBuilds: true,
+  
+  // Optimisations Webpack
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      config.resolve.fallback = {
+        fs: false,
+        path: false,
+        crypto: false,
+      };
+    }
+    return config;
   },
 };
 

@@ -1,56 +1,34 @@
-# Node modules
-node_modules/
+# Dependencies
+/node_modules
+/.pnp
+.pnp.js
+.yarn/install-state.gz
 
-# virtualenv
-.venv/
-venv/
-ENV/
-env/
-# python caches
-__pycache__/
-*.py[cod]
+# Next.js
+/.next/
+/out/
+.next/
 
-# Build output
-dist/
-out/
+# Production
+/build
+/dist
+
+# Cache
+.next/cache/
+
+# Environment
+.env*.local
 
 # Logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-pnpm-debug.log*
 
-# Environment variables
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# OS
+# System
 .DS_Store
-Thumbs.db
 
-# Editor folders
-.vscode/
-.idea/
-
-# Tests
-coverage/
-
-# Optional: Supabase or other generated folders
-.supabase/
-.dictionaries/
-.old/
-# Lock files (optional: depends on what you use)
-package-lock.json
-yarn.lock
-pnpm-lock.yaml
+# Vercel
 .vercel
 
-# Configuration spécifique aux environnements
-/vercel.json    # Supprimez cette ligne si vous la gardez pour Vercel
-/render.yaml    # Supprimez cette ligne si vous la gardez pour Render
-.venv/
-.venv/
-apitruthtalent.git/
+# Supabase
+.supabase/

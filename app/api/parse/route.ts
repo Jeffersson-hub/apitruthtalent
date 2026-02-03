@@ -1,50 +1,108 @@
 import { NextRequest, NextResponse } from "next/server";
-import { extractCVData } from "../../../services/documentParser";
+import { parseCV } from "../../../services/documentParser";
 
-export const runtime = "edge"; // Pour Vercel Edge Functions
+// Runtime adaptatif : Node.js pour parsing lourd
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData();
-    const file = formData.get("file") as File;
+    const contentType = request.headers.get("content-type") || "";
 
-    if (!file) {
+    // Upload direct de fichier
+    if (contentType.includes("multipart/form-data")) {
+      const formData = await request.formData();
+      const file = formData.get("file") as File;
+
+      if (!file) {
+        return NextResponse.json(
+          { error: "No file provided" },
+          { status: 400 },
+        );
+      }
+
+      const buffer = await file.arrayBuffer();
+      const result = await parseCV(buffer, file.name, file.type);
+
       return NextResponse.json(
-        { error: "Aucun fichier fourni" },
-        { status: 400 },
+        {
+          success: true,
+          data: result,
+          processed_at: new Date().toISOString(),
+        },
+        {
+          status: 200,
+          headers: {
+            "Access-Control-Allow-Origin": "*",
+            "Content-Type": "application/json",
+          },
+        },
+      );
+    } else {
+      // JSON avec URL
+      const body = await request.json();
+      const { file_url, filename = "cv.pdf", mime_type } = body;
+
+      if (!file_url) {
+        return NextResponse.json(
+          { error: "file_url is required" },
+          { status: 400 },
+        );
+      }
+
+      // Télécharger depuis URL
+      const response = await fetch(file_url);
+      if (!response.ok) {
+        throw new Error(`Failed to download file: ${response.status}`);
+      }
+
+      const buffer = await response.arrayBuffer();
+      const result = await parseCV(buffer, filename, mime_type);
+
+      return NextResponse.json(
+        {
+          success: true,
+          data: result,
+          processed_at: new Date().toISOString(),
+        },
+        {
+          status: 200,
+          headers: {
+            "Access-Control-Allow-Origin": "*",
+            "Content-Type": "application/json",
+          },
+        },
       );
     }
-
-    // Convertir File en Buffer
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-
-    // Extraire les données du CV
-    const candidat = await extractCVData(buffer, file.name, null);
-
-    return NextResponse.json({
-      success: true,
-      data: candidat,
-      message: "CV analysé avec succès",
-    });
   } catch (error: any) {
-    console.error("Erreur API parse:", error);
+    console.error("API Error:", error);
+
     return NextResponse.json(
       {
-        error: "Erreur lors de l'analyse du CV",
-        details: error.message,
+        success: false,
+        error: error.message || "Internal server error",
       },
-      { status: 500 },
+      {
+        status: 500,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Content-Type": "application/json",
+        },
+      },
     );
   }
 }
 
-export async function GET() {
-  return NextResponse.json({
-    message: "API Parse CV - Utilisez POST avec un fichier",
-    endpoints: {
-      parse: "POST /api/parse",
-      health: "GET /api/health",
+// CORS preflight
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 200,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      "Access-Control-Max-Age": "86400",
     },
   });
 }
