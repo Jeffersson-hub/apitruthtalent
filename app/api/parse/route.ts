@@ -114,3 +114,17 @@ export async function OPTIONS() {
     },
   });
 }
+
+// Ajoutez cette fonction GET
+export async function GET() {
+  return NextResponse.json({
+    status: 'healthy',
+    service: 'CV Parser API',
+    version: '1.0.0',
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      parse: { method: 'POST', path: '/api/parse' },
+      health: { method: 'GET', path: '/api/parse/health' }
+    }
+  })
+}
