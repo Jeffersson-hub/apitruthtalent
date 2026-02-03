@@ -1,47 +1,18 @@
 {
-  "name": "truth-talent-cv-engine",
-  "version": "3.0.0",
-  "type": "module",
+  "name": "cv-parser-local",
+  "private": true,
+  "type": "commonjs",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
-    "build:vercel": "next build",
-    "build:docker": "docker build -t cv-parser .",
-    "deploy:vercel": "vercel --prod",
-    "deploy:railway": "railway up",
-    "deploy:supabase": "supabase functions deploy"
+    "build": "next build"
   },
   "dependencies": {
     "next": "14.0.4",
     "react": "18.2.0",
-    "react-dom": "18.2.0",  
-    "pdf-parse": "^1.1.1",
-    "mammoth": "^1.6.0",
-    "pdfjs-dist": "^4.0.379",
-    "chrono-node": "^2.7.3",
-    "fuse.js": "^7.0.0",
-    "compromise": "^14.14.5",
-    "node-fetch": "^3.3.2",
-    "formdata-polyfill": "^4.0.10",
-    "web-streams-polyfill": "^3.2.1",
-    "@supabase/supabase-js": "^2.38.0",
-    "@upstash/redis": "^1.22.0",
-    "zod": "^3.22.4",
-    "@vercel/analytics": "^1.0.0"
-  },
-  "devDependencies": {
-    "@types/node": "20.10.5",
-    "@types/react": "18.2.45",
-    "@types/react-dom": "18.2.18",
-    "@types/pdf-parse": "^1.1.4",
-    "@types/fuse.js": "^7.0.2",
-    "typescript": "5.3.3",
-    "eslint": "8.56.0",
-    "eslint-config-next": "14.0.4"
-  },
-  "engines": {
-    "node": ">=18.0.0"
+    "react-dom": "18.2.0",
+    "pdf-parse": "1.1.1",
+    "mammoth": "1.6.0",
+    "chrono-node": "2.6.1",
+    "fuse.js": "6.6.2"
   }
 }
