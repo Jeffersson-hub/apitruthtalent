@@ -1,379 +1,207 @@
-import type Candidat from "../types/candidats";
-import mammoth from "mammoth";
-import pdfParse from "pdf-parse";
-import * as chrono from "chrono-node";
+// services/documentParser.ts
+// services/documentParser.ts
+import type Candidat from '../types/candidats';
+import type { Experience, Formation, Langue } from '../types/candidats';
 
-// Dictionnaires simplifiés
-const SKILLS = [
-  "JavaScript", "TypeScript", "Python", "Java", "React", "Vue.js", "Angular",
-  "Node.js", "Express", "Django", "Flask", "Spring", "AWS", "Azure", "Docker",
-  "Kubernetes", "Git", "CI/CD", "SQL", "NoSQL", "MongoDB", "PostgreSQL",
-  "HTML", "CSS", "SASS", "Webpack", "REST API", "GraphQL"
-];
-
-const TITLES = [
-  "Développeur", "Ingénieur", "Consultant", "Manager", "Directeur",
-  "Responsable", "Chef de projet", "Analyste", "Architecte", "Technicien"
-];
-
-// Initialiser Fuse.js
-
-
-// Helper functions
-function normalize(text: string): string {
-  return text
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^\w\s\-.,\/]/g, " ")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
+// Interface pour le résultat du parsing
+interface ParseResult {
+  candidat: Candidat;
+  confidence_score: number;
+  raw_text?: string;
+  metadata?: Record<string, any>;
 }
 
-function unique<T>(arr: T[]): T[] {
-  return [...new Set(arr)];
-}
-
-// Extraction PDF
-async function extractTextFromPDF(buffer: ArrayBuffer): Promise<string> {
-  try {
-    const data = await pdfParse(Buffer.from(buffer));
-    return data.text || "";
-  } catch (error) {
-    console.warn("PDF parse failed");
-    const decoder = new TextDecoder('utf-8', { fatal: false });
-    return decoder.decode(buffer);
-  }
-}
-
-// Extraction Word
-async function extractTextFromWord(buffer: ArrayBuffer): Promise<string> {
-  try {
-    const result = await mammoth.extractRawText({ 
-      buffer: Buffer.from(buffer) 
-    });
-    return result.value || "";
-  } catch (error) {
-    console.warn("DOCX parse failed");
-    const decoder = new TextDecoder('utf-8', { fatal: false });
-    return decoder.decode(buffer);
-  }
-}
-
-// Extraction email
-function extractEmail(text: string): string | null {
-  const emailRegex = /[\w.+-]+@[\w-]+\.[\w.-]+/gi;
-  const match = text.match(emailRegex);
-  return match ? match[0] : null;
-}
-
-// Extraction téléphone
-function extractPhone(text: string): string | null {
-  const phoneRegex = /(?:\+33|0)[1-9](?:[\s.-]?\d{2}){4}|\+\d{1,3}[\s.-]?\d{1,14}/g;
-  const match = text.match(phoneRegex);
-  return match ? match[0].replace(/\s/g, '') : null;
-}
-
-// Extraction LinkedIn
-function extractLinkedIn(text: string): string | null {
-  const linkedinRegex = /https?:\/\/(?:www\.)?linkedin\.com\/(?:in|company)\/[\w-]+/gi;
-  const match = text.match(linkedinRegex);
-  return match ? match[0] : null;
-}
-
-// Extraction nom
-function extractName(text: string, filename: string): { firstName: string | null; lastName: string | null } {
-  // Chercher dans les premières lignes
-  const lines = text.split('\n').slice(0, 5);
-  for (const line of lines) {
-    const nameMatch = line.match(/^([A-ZÀ-Ÿ][a-zà-ÿ]+)\s+([A-ZÀ-Ÿ][a-zà-ÿ]+)$/);
-    if (nameMatch) return { firstName: nameMatch[1], lastName: nameMatch[2] };
-  }
+export async function parseCV(
+  buffer: Buffer,
+  filename: string,
+  fileType: string
+): Promise<ParseResult> {
   
-  // Fallback sur nom de fichier
-  const base = filename.replace(/\.[^.]+$/, '');
-  const parts = base.split(/[_\-\s.]+/).filter(Boolean);
-  if (parts.length >= 2) {
-    return { firstName: parts[0], lastName: parts.slice(1).join(' ') };
-  }
+  // 1. Extraire le texte brut du CV
+  const rawText = await extractTextFromBuffer(buffer, fileType);
   
-  return { firstName: null, lastName: null };
-}
-
-// Extraction compétences
-function extractSkills(text: string): string[] {
-  const normalized = normalize(text);
-  const found: string[] = [];
+  // 2. Analyser le texte pour en extraire les informations
+  const extractedData = await analyzeCVText(rawText);
   
-  // Recherche directe
-  for (const skill of SKILLS) {
-    if (normalized.includes(normalize(skill))) {
-      found.push(skill);
-    }
-  }
-  
-  return unique(found).slice(0, 20);
-}
-
-// Extraction titres
-function extractTitles(text: string): string[] {
-  const titles: string[] = [];
-  const normalized = normalize(text);
-  
-  // Recherche directe
-  for (const title of TITLES) {
-    if (normalized.includes(normalize(title))) {
-      titles.push(title);
-    }
-  }
-  
-  return unique(titles);
-}
-
-// Extraction expériences
-function extractExperiences(text: string): any[] {
-  const experiences: any[] = [];
-  const lines = text.split('\n');
-  
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
+  // 3. Structurer les données selon votre interface Candidat
+  const candidat: Candidat = {
+    // Champs obligatoires
+    fichier: filename,
+    nom: extractedData.nom || null,
+    prenom: extractedData.prenom || null,
+    email: extractedData.email || null,
+    telephone: extractedData.telephone || null,
+    poste: extractedData.poste || null,
+    entreprise: extractedData.entrepriseActuelle || null,
+    profil: extractedData.profil || null,
     
-    // Chercher une période
-    const parsedDates = chrono.parse(line);
-    if (parsedDates.length > 0) {
-      const date = parsedDates[0];
-      
-      // Chercher le poste (ligne avant)
-      let poste = null;
-      if (i > 0) {
-        poste = lines[i-1].trim();
-      }
-      
-      // Chercher l'entreprise (ligne après)
-      let entreprise = null;
-      if (i < lines.length - 1) {
-        entreprise = lines[i+1].trim();
-      }
-      
-      experiences.push({
-        debut: date.start ? date.start.date().toISOString() : null,
-        fin: date.end ? date.end.date().toISOString() : null,
-        poste,
-        entreprise,
-        description: null
-      });
-    }
-  }
-  
-  return experiences.slice(0, 10);
-}
-
-// Extraction formations (simplifiée)
-function extractEducation(text: string): string[] {
-  const formations: string[] = [];
-  const lines = text.split('\n');
-  
-  const educationKeywords = [
-    'master', 'licence', 'bachelor', 'bts', 'dut', 'diplôme', 'formation',
-    'école', 'université', 'bac', 'doctorat', 'phd', 'ingénieur'
-  ];
-  
-  for (const line of lines) {
-    const trimmed = line.trim();
-    const lowerLine = trimmed.toLowerCase();
+    // Tableaux - conversions depuis les données extraites
+    competences: extractedData.competences || [],
+    metiers: extractedData.metiers || [],
     
-    if (educationKeywords.some(keyword => lowerLine.includes(keyword)) && 
-        trimmed.length > 10) {
-      formations.push(trimmed);
+    // Expériences professionnelles (convertir depuis données brutes)
+    experiences: extractedData.experiences?.map((exp: { company: any; employer: any; entreprise: any; title: any; position: any; poste: any; startDate: string | number | Date; endDate: string | number | Date; description: any; resume: any; location: any; lieu: any; }) => ({
+      entreprise: exp.company || exp.employer || exp.entreprise || "Inconnu",
+      poste: exp.title || exp.position || exp.poste || "Non spécifié",
+      debut: exp.startDate ? new Date(exp.startDate).toISOString() : null,
+      fin: exp.endDate ? new Date(exp.endDate).toISOString() : null,
+      description: exp.description || exp.resume || null,
+      lieu: exp.location || exp.lieu || null
+    })) || [],
+    
+    // Formations
+    formations: extractedData.education?.map((edu: { institution: any; school: any; etablissement: any; degree: any; diploma: any; diplome: any; date: string | number | Date; field: any; domain: any; domaine: any; }) => ({
+      etablissement: edu.institution || edu.school || edu.etablissement || "Inconnu",
+      diplome: edu.degree || edu.diploma || edu.diplome || "Non spécifié",
+      date_obtention: edu.date ? new Date(edu.date).toISOString() : new Date().toISOString(),
+      domaine: edu.field || edu.domain || edu.domaine || null
+    })) || [],
+    
+    // Langues
+    langues: extractedData.languages?.map((lang: { language: any; langue: any; level: any; niveau: any; certified: any; }) => ({
+      langue: lang.language || lang.langue || "Inconnu",
+      niveau: lang.level || lang.niveau || "Non spécifié",
+      certification: lang.certified || false
+    })) || [],
+    
+    // Autres informations
+    adresse: extractedData.address || extractedData.location || null,
+    linkedin: extractedData.linkedin || extractedData.social?.linkedin || null,
+    niveau: extractedData.seniority || extractedData.experienceLevel || null,
+    
+    // Métadonnées et score de confiance
+    confidence_score: extractedData.confidenceScore || 0.7,
+    cv_filename: filename,
+    file_type: fileType,
+    raw_text: rawText.substring(0, 5000), // Stocker les premiers 5000 caractères
+    extraction_date: new Date().toISOString(),
+    date_extraction: new Date().toISOString(),
+    
+    // Champs optionnels calculés
+    annees_experience: calculateYearsOfExperience(extractedData.experiences)
+  };
+  
+  // 4. Calculer le score de confiance global
+  const confidenceScore = calculateConfidenceScore(candidat);
+  
+  return {
+    candidat,
+    confidence_score: confidenceScore,
+    raw_text: rawText,
+    metadata: {
+      filename,
+      file_type: fileType,
+      extraction_date: new Date().toISOString(),
+      file_size: buffer.length,
+      parsing_strategy: 'basic_text_analysis'
     }
+  };
+}
+
+// Fonction pour extraire le texte selon le type de fichier
+async function extractTextFromBuffer(buffer: Buffer, fileType: string): Promise<string> {
+  try {
+    if (fileType === 'application/pdf') {
+      // Utiliser pdf-parse ou une librairie similaire
+      const pdf = require('pdf-parse');
+      const data = await pdf(buffer);
+      return data.text;
+    } else if (
+      fileType.includes('msword') || 
+      fileType.includes('wordprocessingml')
+    ) {
+      // Utiliser mammoth ou une librairie pour DOC/DOCX
+      const mammoth = require('mammoth');
+      const result = await mammoth.extractRawText({ buffer });
+      return result.value;
+    } else if (fileType === 'text/plain') {
+      // Pour les fichiers texte
+      return buffer.toString('utf-8');
+    } else {
+      // Fallback: essayer de lire comme texte
+      return buffer.toString('utf-8');
+    }
+  } catch (error) {
+    console.error('Erreur lors de l\'extraction du texte:', error);
+    return buffer.toString('utf-8', 0, Math.min(buffer.length, 10000));
   }
-  
-  return formations.slice(0, 5);
 }
 
-// Extraction langues (simplifiée)
-function extractLanguages(text: string): string[] {
-  const langues: string[] = [];
-  const lowerText = text.toLowerCase();
+// Fonction pour analyser le texte du CV
+async function analyzeCVText(text: string): Promise<any> {
+  // ICI : Implémentez votre logique d'analyse
   
-  if (lowerText.includes('français')) langues.push('Français');
-  if (lowerText.includes('anglais')) langues.push('Anglais');
-  if (lowerText.includes('espagnol')) langues.push('Espagnol');
-  if (lowerText.includes('allemand')) langues.push('Allemand');
+  // Exemple simplifié :
+  const data: any = {
+    competences: [],
+    experiences: [],
+    formations: [],
+    languages: []
+  };
   
-  return langues;
+  // 1. Trouver email (regex simple)
+  const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+  if (emailMatch) data.email = emailMatch[0];
+  
+  // 2. Trouver téléphone (regex pour numéros FR)
+  const phoneMatch = text.match(/(?:(?:\+|00)33|0)\s*[1-9](?:[\s.-]*\d{2}){4}/);
+  if (phoneMatch) data.telephone = phoneMatch[0];
+  
+  // 3. Extraire sections (expérience, formation, compétences)
+  // ... votre logique d'extraction ici ...
+  
+  return data;
 }
 
-// Extraction adresse
-function extractAddress(text: string): string | null {
-  // Chercher code postal
-  const cpMatch = text.match(/\b\d{5}\b/);
-  return cpMatch ? cpMatch[0] : null;
-}
-
-// Détection niveau d'éducation
-function detectEducationLevel(text: string): string | null {
-  const lowerText = text.toLowerCase();
-  
-  if (lowerText.includes('doctorat') || lowerText.includes('phd')) return 'Doctorat';
-  if (lowerText.includes('master') || lowerText.includes('bac+5')) return 'BAC+5';
-  if (lowerText.includes('licence') || lowerText.includes('bac+3')) return 'BAC+3';
-  if (lowerText.includes('bts') || lowerText.includes('dut')) return 'BAC+2';
-  if (lowerText.includes('bac') && !lowerText.includes('bac+')) return 'BAC';
-  if (lowerText.includes('cap') || lowerText.includes('bep')) return 'CAP/BEP';
-  
-  return null;
-}
-
-// Calcul expérience totale
-function calculateTotalExperience(experiences: any[]): number {
+// Calculer les années d'expérience
+function calculateYearsOfExperience(experiences: any[]): number {
   if (!experiences || experiences.length === 0) return 0;
   
   let totalYears = 0;
-  
-  for (const exp of experiences) {
-    try {
-      const start = exp.debut ? new Date(exp.debut) : null;
-      const end = exp.fin ? new Date(exp.fin) : new Date();
-      
-      if (start && end) {
-        const years = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
-        if (years > 0) {
-          totalYears += years;
-        }
-      }
-    } catch (error) {
-      // Ignorer les erreurs
+  experiences.forEach(exp => {
+    if (exp.startDate && exp.endDate) {
+      const start = new Date(exp.startDate);
+      const end = new Date(exp.endDate);
+      const years = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+      totalYears += Math.max(0, years);
     }
-  }
+  });
   
-  return Math.round(totalYears * 10) / 10;
+  return Math.round(totalYears * 10) / 10; // Arrondir à 1 décimale
 }
 
-// Détection profil
-function detectProfile(skills: string[]): string {
-  if (skills.some(s => ['javascript', 'typescript', 'react', 'vue', 'angular'].includes(s.toLowerCase()))) {
-    return "Développeur";
-  }
-  if (skills.some(s => ['python', 'sql', 'machine learning', 'data science'].includes(s.toLowerCase()))) {
-    return "Data";
-  }
-  if (skills.some(s => ['docker', 'kubernetes', 'aws', 'azure'].includes(s.toLowerCase()))) {
-    return "DevOps";
-  }
-  return "Autre";
-}
-
-// Extraction entreprise
-function extractCompany(text: string): string | null {
-  const companyPatterns = [
-    /(?:chez|at)\s+([A-ZÀ-Ÿ][\w\s&]+)/i,
-    /entreprise\s*:\s*([A-ZÀ-Ÿ][\w\s&]+)/i
-  ];
+// Calculer le score de confiance
+function calculateConfidenceScore(candidat: Candidat): number {
+  let score = 0;
+  let totalPoints = 0;
   
-  for (const pattern of companyPatterns) {
-    const match = text.match(pattern);
-    if (match) return match[1].trim();
-  }
+  // Nom + Prénom : 20 points
+  if (candidat.nom && candidat.prenom) score += 20;
+  totalPoints += 20;
   
-  return null;
-}
-
-// Parser principal
-export async function parseCV(
-  buffer: ArrayBuffer,
-  filename: string,
-  mimeType?: string
-): Promise<Candidat> {
-  try {
-    // 1. Extraction texte selon le format
-    let text = "";
-    const lowerName = filename.toLowerCase();
-    
-    if (lowerName.endsWith('.pdf') || mimeType?.includes('pdf')) {
-      text = await extractTextFromPDF(buffer);
-    } else if (lowerName.endsWith('.docx') || lowerName.endsWith('.doc')) {
-      text = await extractTextFromWord(buffer);
-    } else {
-      // Texte brut
-      const decoder = new TextDecoder('utf-8', { fatal: false });
-      text = decoder.decode(buffer);
-    }
-    
-    // Nettoyage
-    text = text.replace(/\s+/g, ' ').trim();
-    
-    // 2. Extraction des entités
-    const email = extractEmail(text);
-    const phone = extractPhone(text);
-    const linkedin = extractLinkedIn(text);
-    const { firstName, lastName } = extractName(text, filename);
-    
-    // 3. Extraction données structurées
-    const skills = extractSkills(text);
-    const titles = extractTitles(text);
-    const experiences = extractExperiences(text);
-    const formations = extractEducation(text);
-    const langues = extractLanguages(text);
-    const adresse = extractAddress(text);
-    const niveau = detectEducationLevel(text);
-    const anneesExperience = calculateTotalExperience(experiences);
-    const entreprise = extractCompany(text);
-    const profil = detectProfile(skills);
-    
-    // 5. Construction de l'objet Candidat
-    const candidat: Candidat = {
-      fichier: filename,
-      nom: lastName,
-      prenom: firstName,
-      email,
-      telephone: phone,
-      poste: titles[0] || null,
-      entreprise: entreprise || null,
-      profil,
-      competences: skills,
-      metiers: titles,
-      formations,  // string[]
-      experiences, // Experience[]
-      langues,     // string[]
-      adresse,
-      linkedin,
-      niveau,
-      cv_filename: filename,
-      annees_experience: anneesExperience,
-      postes: titles.slice(0, 5),
-      source_analyse: "document_parser",
-      raw_text: text.substring(0, 1000)
-    };
-    
-    return candidat;
-    
-  } catch (error: any) {
-    console.error('CV parsing error:', error);
-    
-    // Retourner un candidat vide en cas d'erreur
-    return {
-      fichier: filename,
-      nom: null,
-      prenom: null,
-      email: null,
-      telephone: null,
-      poste: null,
-      entreprise: null,
-      profil: null,
-      competences: [],
-      metiers: [],
-      formations: [],
-      experiences: [],
-      langues: [],
-      adresse: null,
-      linkedin: null,
-      niveau: null,
-      cv_filename: filename,
-      annees_experience: 0,
-      postes: [],
-      source_analyse: "error",
-      raw_text: ""
-    };
-  }
+  // Email : 15 points
+  if (candidat.email) score += 15;
+  totalPoints += 15;
+  
+  // Téléphone : 10 points
+  if (candidat.telephone) score += 10;
+  totalPoints += 10;
+  
+  // Poste actuel : 15 points
+  if (candidat.poste) score += 15;
+  totalPoints += 15;
+  
+  // Expériences : 20 points (au moins une expérience)
+  if (candidat.experiences && candidat.experiences.length > 0) score += 20;
+  totalPoints += 20;
+  
+  // Compétences : 10 points (au moins 3 compétences)
+  if (candidat.competences && candidat.competences.length >= 3) score += 10;
+  totalPoints += 10;
+  
+  // Formations : 10 points (au moins une formation)
+  if (candidat.formations && candidat.formations.length > 0) score += 10;
+  totalPoints += 10;
+  
+  return totalPoints > 0 ? Math.round((score / totalPoints) * 100) / 100 : 0;
 }

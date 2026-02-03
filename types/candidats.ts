@@ -1,4 +1,32 @@
 // types/candidats.ts
+
+// 1. Définir les interfaces avec les bonnes propriétés
+export interface Experience {
+  entreprise: string;
+  poste: string;
+  debut: string | null;  // ← CORRECTION: propriété "debut" (pas "date_debut")
+  fin: string | null;    // ← CORRECTION: propriété "fin" (pas "date_fin")
+  description?: string | null;
+  lieu?: string;
+  [key: string]: any;
+}
+
+export interface Formation {
+  etablissement: string;
+  diplome: string;
+  date_obtention: string;
+  domaine?: string;
+  [key: string]: any;
+}
+
+export interface Langue {
+  langue: string;
+  niveau: string;
+  certification?: boolean;
+  [key: string]: any;
+}
+
+// 2. Interface Candidat
 export default interface Candidat {
   // Champs obligatoires
   fichier: string;
@@ -11,15 +39,16 @@ export default interface Candidat {
   profil: string | null;
   competences: string[];
   metiers: string[];
-  experiences: any[];
-  formations: any[];
-  langues: any[];
+  experiences: Experience[]; // ✅ Tableau d'objets Experience
+  formations: Formation[];   // ✅ Tableau d'objets Formation
+  langues: Langue[];         // ✅ Tableau d'objets Langue
   adresse: string | null;
   linkedin: string | null;
   niveau: string | null;
+  confidence_score?: number;
   
-  // Champs avec valeurs par défaut optionnels
-  annees_experience?: number; // ← Changé à optionnel
+  // Champs optionnels
+  annees_experience?: number;
   id?: string;
   statut?: string;
   date_extraction?: string;
@@ -34,7 +63,5 @@ export default interface Candidat {
   links?: string[];
   created_at?: string;
   updated_at?: string;
-
-  // Ajouté : nom du fichier côté storage / upload (nullable)
   cv_filename?: string | null;
 }
