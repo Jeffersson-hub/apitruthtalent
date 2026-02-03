@@ -1,31 +1,14 @@
 // app/api/health/route.ts
-import { NextResponse } from "next/server";
-
-export const runtime = "edge";
+import { NextResponse } from 'next/server';
 
 export async function GET() {
   return NextResponse.json({
-    status: "healthy",
-    service: "TruthTalent CV Parser",
-    version: "2.0.0",
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    features: [
-      "PDF parsing",
-      "DOCX parsing",
-      "NER extraction",
-      "Experience parsing",
-      "Skill matching",
-    ],
-  });
-}
-
-export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 200,
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, OPTIONS",
-    },
+    status: 'healthy',
+    service: 'CV Parser API',
+    version: '1.0.0',
+    endpoints: [
+      { path: '/api/parse', method: 'POST', description: 'Parser un CV' },
+      { path: '/api/health', method: 'GET', description: 'Vérifier le statut' }
+    ]
   });
 }
