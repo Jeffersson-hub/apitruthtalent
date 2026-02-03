@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { supabase } from "../utils/supabase";
+import { supabase } from "../../utils/supabase";
 
 const router = Router();
 
@@ -17,7 +17,7 @@ router.post("/", async (req, res) => {
         status: "pending",
         total: files.length,
         processed: 0,
-        files
+        files,
       })
       .select()
       .single();
