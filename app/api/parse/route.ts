@@ -1,3 +1,4 @@
+// app/api/parse/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { parseCV } from '../../../services/documentParser';
 import type Candidat from '../../../types/candidats';

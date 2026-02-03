@@ -1,33 +1,26 @@
 // types/candidats.ts
-
-// 1. Définir les interfaces avec les bonnes propriétés
 export interface Experience {
   entreprise: string;
   poste: string;
-  debut: string | null;  // ← CORRECTION: propriété "debut" (pas "date_debut")
-  fin: string | null;    // ← CORRECTION: propriété "fin" (pas "date_fin")
+  debut: string;
+  fin: string | null;
   description?: string | null;
-  lieu?: string;
-  [key: string]: any;
 }
 
 export interface Formation {
   etablissement: string;
   diplome: string;
   date_obtention: string;
-  domaine?: string;
-  [key: string]: any;
+  domaine?: string | null;
 }
 
 export interface Langue {
   langue: string;
   niveau: string;
   certification?: boolean;
-  [key: string]: any;
 }
 
-// 2. Interface Candidat
-export default interface Candidat {
+interface Candidat {
   // Champs obligatoires
   fichier: string;
   nom: string | null;
@@ -39,29 +32,24 @@ export default interface Candidat {
   profil: string | null;
   competences: string[];
   metiers: string[];
-  experiences: Experience[]; // ✅ Tableau d'objets Experience
-  formations: Formation[];   // ✅ Tableau d'objets Formation
-  langues: Langue[];         // ✅ Tableau d'objets Langue
+  experiences: Experience[];
+  formations: Formation[];
+  langues: Langue[];
   adresse: string | null;
   linkedin: string | null;
   niveau: string | null;
-  confidence_score?: number;
   
   // Champs optionnels
+  confidence_score?: number;
   annees_experience?: number;
-  id?: string;
-  statut?: string;
-  date_extraction?: string;
-  cv_url?: string;
-  postes?: string[];
-  date_analyse?: string;
-  source_analyse?: string;
-  affinda_doc_id?: string;
-  raw_text?: string;
-  extraction_date?: string;
+  cv_filename?: string;
   file_type?: string;
-  links?: string[];
-  created_at?: string;
-  updated_at?: string;
-  cv_filename?: string | null;
+  raw_text?: string;
+  date_analyse?: string;
+  statut?: string;
+  source?: string;
+  offre_postulee?: string | null;
+  [key: string]: any; // Pour les champs dynamiques
 }
+
+export default Candidat;
