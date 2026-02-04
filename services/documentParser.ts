@@ -35,6 +35,7 @@ export interface CandidatData {
   linkedin?: string;
   github?: string;
   portfolio?: string;
+  niveau?: string;
   niveau_etude?: string;
   niveau_experience?: string;
   salaire_actuel?: number;

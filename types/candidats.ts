@@ -20,36 +20,73 @@ export interface Langue {
   certification?: boolean;
 }
 
-interface Candidat {
+export interface Candidat {
   // Champs obligatoires
+  id?: number;
   fichier: string;
+  cv_filename: string;
+  confidence_score: number;
+  file_type: string;
+  extraction_date: string;
+  date_extraction: string;
+  
+  // Informations personnelles
   nom: string | null;
   prenom: string | null;
   email: string | null;
   telephone: string | null;
+  
+  // Profil professionnel
   poste: string | null;
   entreprise: string | null;
   profil: string | null;
+  
+  // Nouveau champ niveau
+  niveau: string | null; // <-- Ajouté ici
+  
+  niveau_etude?: string | null;
+  niveau_experience?: string | null;
+  annees_experience?: number | null;
+  
+  // Compétences
   competences: string[];
   metiers: string[];
-  experiences: Experience[];
-  formations: Formation[];
-  langues: Langue[];
-  adresse: string | null;
-  linkedin: string | null;
-  niveau: string | null;
+  soft_skills?: string[];
   
-  // Champs optionnels
-  confidence_score?: number;
-  annees_experience?: number;
-  cv_filename?: string;
-  file_type?: string;
-  raw_text?: string;
-  date_analyse?: string;
-  statut?: string;
-  source?: string;
-  offre_postulee?: string | null;
-  [key: string]: any; // Pour les champs dynamiques
+  // Parcours
+  experiences: any[];
+  formations: any[];
+  certifications?: any[];
+  projets?: any[];
+  langues: any[];
+  
+  // Contact supplémentaires
+  linkedin: string | null;
+  github?: string | null;
+  portfolio?: string | null;
+  
+  // Adresse - CORRECTION ICI : soit un objet, soit null, soit string
+  adresse: {
+    rue?: string;
+    ville?: string;
+    code_postal?: string;
+    pays?: string;
+  } | string | null;
+  
+  // Aspects pratiques
+  salaire_actuel?: number | null;
+  salaire_souhaite?: number | null;
+  disponibilite?: string | null;
+  mobilite?: string[] | null;
+  
+  // Métadonnées
+  metadata?: any;
+  raw_text?: string | null;
+  
+  // Statut
+  status?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export default Candidat;
