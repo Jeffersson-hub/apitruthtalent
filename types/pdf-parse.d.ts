@@ -1,13 +1,12 @@
+// types/pdf-parse.d.ts
 declare module 'pdf-parse' {
-  interface PDFData {
+  function pdfParse(dataBuffer: Buffer, options?: any): Promise<{
     text: string;
     numpages: number;
-    numrender: number;
-    info: Record<string, any>;
+    info: any;
     metadata: any;
     version: string;
-  }
-
-  function pdf(buffer: Buffer): Promise<PDFData>;
-  export = pdf;
+  }>;
+  
+  export = pdfParse;
 }
