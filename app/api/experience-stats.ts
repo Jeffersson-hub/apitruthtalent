@@ -2,9 +2,46 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { supabase } from "../../utils/supabase";
 
+// Types pour les données
+interface CandidatExperience {
+  annees_experience: number | null;
+  id?: number;
+  nom?: string;
+  prenom?: string;
+  postes?: string[];
+}
+
+interface DistributionItem {
+  range: string;
+  count: number;
+  percentage: number;
+}
+
+interface TopCandidat {
+  id: number;
+  nom: string | null;
+  prenom: string | null;
+  annees_experience: number | null;
+  postes: string[] | null;
+}
+
+interface StatsResponse {
+  success: boolean;
+  stats: {
+    total_candidats: number;
+    moyenne: number;
+    min: number;
+    max: number;
+    mediane: number;
+  };
+  distribution: DistributionItem[];
+  top_experiences: TopCandidat[];
+  timestamp: string;
+}
+
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse,
+  res: NextApiResponse<StatsResponse | { success: false; error: string; timestamp: string }>,
 ) {
   // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -16,7 +53,11 @@ export default async function handler(
   }
 
   if (req.method !== "GET") {
-    return res.status(405).json({ error: "Méthode non autorisée" });
+    return res.status(405).json({ 
+      success: false,
+      error: "Méthode non autorisée",
+      timestamp: new Date().toISOString()
+    });
   }
 
   try {
@@ -31,15 +72,16 @@ export default async function handler(
     if (statsError) throw statsError;
 
     // Calcul des statistiques
-    const experiences =
-      stats?.map((s) => s.annees_experience).filter(Boolean) || [];
+    const experiences = stats
+      ?.map((s: CandidatExperience) => s.annees_experience)
+      .filter((exp: number | null): exp is number => exp !== null && !isNaN(exp)) || [];
 
     const statsCalculated = {
       total_candidats: experiences.length,
       moyenne:
         experiences.length > 0
           ? Math.round(
-              (experiences.reduce((a, b) => a + b, 0) / experiences.length) *
+              (experiences.reduce((a: number, b: number) => a + b, 0) / experiences.length) *
                 10,
             ) / 10
           : 0,
@@ -54,11 +96,12 @@ export default async function handler(
     );
 
     // Si la fonction RPC n'existe pas, on la calcule manuellement
-    let distributionData;
+    let distributionData: DistributionItem[];
     if (distError) {
+      console.warn("Fonction RPC non disponible, calcul manuel:", distError.message);
       distributionData = calculateDistribution(experiences);
     } else {
-      distributionData = distribution;
+      distributionData = distribution || calculateDistribution(experiences);
     }
 
     // 3. Top des expériences
@@ -69,26 +112,34 @@ export default async function handler(
       .order("annees_experience", { ascending: false })
       .limit(10);
 
+    const topCandidatsTyped: TopCandidat[] = (topCandidats || []).map((c: any) => ({
+      id: c.id || 0,
+      nom: c.nom || null,
+      prenom: c.prenom || null,
+      annees_experience: c.annees_experience || null,
+      postes: c.postes || null,
+    }));
+
     return res.status(200).json({
       success: true,
       stats: statsCalculated,
       distribution: distributionData,
-      top_experiences: topCandidats || [],
+      top_experiences: topCandidatsTyped,
       timestamp: new Date().toISOString(),
     });
   } catch (error: any) {
     console.error("💥 Erreur stats expérience:", error);
     return res.status(500).json({
       success: false,
-      error: error.message,
+      error: error.message || "Erreur inconnue",
       timestamp: new Date().toISOString(),
     });
   }
 }
 
-// Fonctions utilitaires
+// Fonctions utilitaires avec types explicites
 function calculateMedian(numbers: number[]): number {
-  const sorted = [...numbers].sort((a, b) => a - b);
+  const sorted = [...numbers].sort((a: number, b: number) => a - b);
   const middle = Math.floor(sorted.length / 2);
 
   if (sorted.length % 2 === 0) {
@@ -98,7 +149,7 @@ function calculateMedian(numbers: number[]): number {
   return sorted[middle];
 }
 
-function calculateDistribution(experiences: number[]): any[] {
+function calculateDistribution(experiences: number[]): DistributionItem[] {
   const ranges = [
     { label: "0-2 ans", min: 0, max: 2 },
     { label: "3-5 ans", min: 3, max: 5 },
@@ -109,7 +160,7 @@ function calculateDistribution(experiences: number[]): any[] {
 
   return ranges.map((range) => {
     const count = experiences.filter(
-      (exp) => exp >= range.min && exp <= range.max,
+      (exp: number) => exp >= range.min && exp <= range.max,
     ).length;
 
     return {

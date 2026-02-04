@@ -87,6 +87,12 @@ export interface Candidat {
   status?: string;
   created_at?: string;
   updated_at?: string;
+
+  cv_url?: string; // Ajoutez ce champ
+  postes?: string[]; // Ajoutez ce champ si utilisé
+  date_analyse?: string;
+  source_analyse?: string;
+  affinda_doc_id?: string;
 }
 
 export default Candidat;

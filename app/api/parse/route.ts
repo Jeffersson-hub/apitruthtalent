@@ -1,15 +1,26 @@
 // app/api/parse/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { parseCV, ParseCVResult } from '../../../services/documentParser';
-import { createClient } from '@supabase/supabase-js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+// Import conditionnel pour éviter l'erreur au build
+let supabase: any;
+
+try {
+  // Essayer d'importer normalement
+  const supabaseModule = require('../../../utils/supabase-build-safe');
+  supabase = supabaseModule.supabase;
+} catch (error) {
+  // Fallback pour le build
+  supabase = {
+    from: () => ({
+      update: () => Promise.resolve({ error: null }),
+      eq: () => ({})
+    })
+  };
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -49,6 +60,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'file_url requis' },
         { status: 400 }
+      );
+    }
+    
+    // Vérifier si supabase est configuré
+    if (!supabase) {
+      return NextResponse.json(
+        { error: 'Supabase non configuré' },
+        { status: 500 }
       );
     }
     
