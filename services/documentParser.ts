@@ -523,9 +523,10 @@ function detectFileType(buffer: Buffer, filename: string): string {
 
 
 // Exporter les fonctions utilitaires si nécessaire
+// Exporter les fonctions utilitaires si nécessaire
 export {
   extractTextFromBuffer,
   extractTextFromPDF,
   extractTextFromDOCX,
-  detectFileType
+  detectFileType, parseCV
 };
