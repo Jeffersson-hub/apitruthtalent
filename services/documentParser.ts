@@ -1,12 +1,7 @@
 // services/documentParser.ts
-import { createClient } from '@supabase/supabase-js';
-import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
+import { NextResponse } from 'next/server';
 
-// Configurer le worker (nécessaire pour pdf.js)
-GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
-
-
-// Interfaces étendues avec toutes les propriétés nécessaires
+// Interfaces de base
 export interface CandidatData {
   nom: string;
   prenom: string;
@@ -16,517 +11,427 @@ export interface CandidatData {
   entreprise?: string;
   competences: string[];
   metiers: string[];
-  annees_experience?: number;
   experiences: any[];
   formations: any[];
   langues: any[];
-  
-  // Nouvelles propriétés
   raw_text?: string;
+  adresse?: string;
+  profil?: string;
   metadata?: {
     filename: string;
     filetype: string;
     extraction_date: string;
-    pages?: number;
-    word_count?: number;
-    language?: string;
   };
-  profil?: string; // Résumé/profil professionnel
-  adresse?: {
-    rue?: string;
-    ville?: string;
-    code_postal?: string;
-    pays?: string;
-  };
-  linkedin?: string;
-  github?: string;
-  portfolio?: string;
-  niveau?: string;
-  niveau_etude?: string;
-  niveau_experience?: string;
-  salaire_actuel?: number;
-  salaire_souhaite?: number;
-  disponibilite?: string;
-  mobilite?: string[];
-  soft_skills?: string[];
-  certifications?: any[];
-  projets?: any[];
 }
 
 export interface ParseCVResult {
   candidat: CandidatData;
   confidence_score: number;
-  raw_text?: string;
-  metadata?: {
-    filename: string;
-    filetype: string;
-    extraction_date: string;
-    parser_version: string;
-    processing_time_ms: number;
-  };
 }
 
-// services/documentParser.ts
-async function parseCV(
-  buffer: Buffer,
-  filename: string,
+// Fonction principale
+export const parseCV = async (
+  buffer: Buffer, 
+  filename: string, 
   fileType: string
-): Promise<ParseCVResult> {
-  const startTime = Date.now();
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
-
-  // 1. Vérifier si ce CV a déjà été parsé (cache)
-  const fileHash = require('crypto').createHash('md5').update(buffer.toString()).digest('hex');
-  const { data: cached, error: cacheError } = await supabase
-    .from('cv_cache')
-    .select('*')
-    .eq('file_hash', fileHash)
-    .single();
-
-  if (cached) {
-    console.log('⚡ Utilisation du cache pour', filename);
-    return {
-      candidat: cached.candidat_data as CandidatData,
-      confidence_score: cached.confidence_score,
-      metadata: {
-        ...cached.metadata,
-        cached: true
-      }
-    };
-  }
-
-  // 2. Parser normalement si pas en cache
-  const result = await performParsing(buffer, filename, fileType);
-
-  // 3. Sauvegarder dans le cache
-  await supabase.from('cv_cache').upsert({
-    file_hash: fileHash,
-    filename,
-    candidat_data: result.candidat,
-    confidence_score: result.confidence_score,
-    metadata: result.metadata,
-    created_at: new Date().toISOString()
-  });
-
-  return result;
-}
-
-async function performParsing(buffer: Buffer, filename: string, fileType: string): Promise<ParseCVResult> {
-  // Logique existante de parsing (extractTextFromBuffer + callDeepSeekAPI)
-  const rawText = await extractTextFromBuffer(buffer, filename, fileType);
-  const extractedData = await callDeepSeekAPI(rawText, filename);
-  return {
-    candidat: extractedData,
-    confidence_score: extractedData.confidence_score || 0.7,
-    metadata: {
-      filename,
-      filetype: fileType,
-      extraction_date: new Date().toISOString(),
-      parser_version: '1.1.0',
-      processing_time_ms: Date.now()
-    }
-  };
-    
-
-};
-
-// Mettre à jour la fonction callDeepSeekAPI pour inclure toutes les données
-async function callDeepSeekAPI(cvText: string, filename: string): Promise<any> {
-  const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-  
-  if (!DEEPSEEK_API_KEY) {
-    console.warn('⚠️ DEEPSEEK_API_KEY non configurée, utilisation du parser simulé');
-    return simulateParsing(cvText, filename);
-  }
+): Promise<ParseCVResult> => {
+  console.log(`🔍 Début extraction CV: ${filename}`);
   
   try {
-    const prompt = `
-Analyse ce CV professionnel et extrais TOUTES les informations dans un JSON structuré.
-Respecte EXACTEMENT cette structure (ne retourne que du JSON valide) :
-
-{
-  "nom": "string",
-  "prenom": "string",
-  "email": "string",
-  "telephone": "string|null",
-  "poste": "string|null",
-  "entreprise": "string|null",
-  "profil": "string|null",
-  "adresse": {
-    "rue": "string|null",
-    "ville": "string|null",
-    "code_postal": "string|null",
-    "pays": "string|null"
-  },
-  "linkedin": "string|null",
-  "github": "string|null",
-  "portfolio": "string|null",
-  "competences": ["string"],
-  "metiers": ["string"],
-  "soft_skills": ["string"],
-  "annees_experience": number|null,
-  "niveau_experience": "Junior"|"Mid-level"|"Senior"|"Expert"|null,
-  "experiences": [
-    {
-      "poste": "string",
-      "entreprise": "string",
-      "date_debut": "string|null", // Format: "2020-01" ou "2020"
-      "date_fin": "string|null",
-      "description": "string|null",
-      "competences_utilisees": ["string"]
-    }
-  ],
-  "formations": [
-    {
-      "diplome": "string",
-      "etablissement": "string",
-      "date_debut": "string|null",
-      "date_fin": "string|null",
-      "mention": "string|null"
-    }
-  ],
-  "langues": [
-    {
-      "langue": "string",
-      "niveau": "Débutant"|"Intermédiaire"|"Courant"|"Natif"
-    }
-  ],
-  "certifications": [
-    {
-      "nom": "string",
-      "organisme": "string",
-      "date_obtention": "string|null"
-    }
-  ],
-  "projets": [
-    {
-      "nom": "string",
-      "description": "string|null",
-      "technologies": ["string"],
-      "date": "string|null"
-    }
-  ],
-  "salaire_actuel": number|null,
-  "salaire_souhaite": number|null,
-  "disponibilite": "string|null",
-  "mobilite": ["string"]|null,
-  "confidence_score": number // 0 à 1
-}
-
-Règles strictes :
-1. Si une information est manquante, mets-la à null (ne l'omets pas).
-2. Les dates doivent être au format "AAAA-MM" ou "AAAA".
-3. "competences" doit contenir UNIQUEMENT des compétences techniques (ex: "React", "Node.js").
-4. "metiers" doit contenir des domaines/métiers (ex: "Développement Web", "Data Science").
-5. "confidence_score" doit refléter ta confiance dans l'extraction (0.8 si tout est clair, 0.3 si incertain).
-
-Texte du CV :
-${cvText.substring(0, 15000)}  // Limite pour éviter de dépasser les tokens
-`;
-
+    // 1. Extraire le texte brut
+    const rawText = await extractTextFromBuffer(buffer, filename, fileType);
     
-    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
+    if (!rawText || rawText.length < 50) {
+      throw new Error('Texte trop court ou vide');
+    }
+    
+    console.log(`✅ Texte extrait: ${rawText.length} caractères`);
+    
+    // 2. Analyser le texte
+    const candidatData = analyzeCVTextAdvanced(rawText);
+    
+    // 3. Calculer un score de confiance
+    const confidence_score = calculateConfidenceScore(candidatData);
+    
+    console.log('📊 Résultats extraction:', {
+      nom: candidatData.nom,
+      prenom: candidatData.prenom,
+      email: candidatData.email,
+      telephone: candidatData.telephone,
+      poste: candidatData.poste,
+      competences: candidatData.competences?.length
+    });
+    
+    return {
+      candidat: candidatData,
+      confidence_score
+    };
+    
+  } catch (error: any) {
+    console.error('❌ Erreur parseCV:', error.message);
+    
+    // Retourner une structure vide en cas d'erreur
+    return {
+      candidat: {
+        nom: '',
+        prenom: '',
+        email: '',
+        competences: [],
+        metiers: [],
+        experiences: [],
+        formations: [],
+        langues: [],
+        metadata: {
+          filename,
+          filetype: fileType,
+          extraction_date: new Date().toISOString()
+        }
       },
-      body: JSON.stringify({
-        model: 'deepseek-chat',
-        messages: [
-          {
-            role: 'system',
-            content: 'Tu es un expert en extraction de données CV. Retourne uniquement du JSON valide.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        temperature: 0.1,
-        max_tokens: 4000,
-        response_format: { type: "json_object" }
-      })
-    });
-    
-    if (!response.ok) {
-      throw new Error(`API Error: ${response.status}`);
-    }
-    
-    const result = await response.json();
-    const content = result.choices[0].message.content;
-    
-    // Nettoyer et parser le JSON
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsedData = JSON.parse(jsonMatch[0]);
-      
-      // Ajouter des métadonnées supplémentaires
-      parsedData.metadata = {
-        filename,
-        extraction_date: new Date().toISOString(),
-        parser: 'deepseek',
-        confidence: parsedData.confidence_score || 0.8
-      };
-      
-      return parsedData;
-    }
-    
-    return simulateParsing(cvText, filename);
-    
-  } catch (error) {
-    console.error('Erreur DeepSeek API:', error);
-    return simulateParsing(cvText, filename);
+      confidence_score: 0
+    };
   }
-}
+};
 
-function simulateParsing(cvText: string, filename: string): any {
-  const text = cvText.toLowerCase();
-  const words = text.split(/\s+/).length;
+// ==================== FONCTIONS D'EXTRACTION DE TEXTE ====================
 
-  // Détection améliorée des informations
-  const emailMatch = cvText.match(/[\w\.-]+@[\w\.-]+\.\w+/);
-  const phoneMatch = cvText.match(/(?:\+33|0)[1-9](?:[\s\.-]?\d{2}){4}/);
-  const linkedinMatch = cvText.match(/linkedin\.com\/in\/([\w-]+)/);
-  const githubMatch = cvText.match(/github\.com\/([\w-]+)/);
-
-  // Compétences techniques courantes
-  const techSkills = [
-    'javascript', 'typescript', 'react', 'vue', 'angular', 'node', 'express',
-    'python', 'django', 'flask', 'java', 'spring', 'c#', 'php', 'laravel',
-    'sql', 'postgresql', 'mongodb', 'docker', 'kubernetes', 'aws', 'azure',
-    'git', 'html', 'css', 'sass', 'webpack', 'graphql', 'rest', 'soap'
-  ];
-
-  const foundSkills = techSkills.filter(skill => text.includes(skill));
-
-  // Expériences simulées
-  const experiences = [];
-  if (text.includes('développeur') || text.includes('developer')) {
-    experiences.push({
-      poste: 'Développeur Full Stack',
-      entreprise: 'Entreprise Tech',
-      date_debut: '2020-01',
-      date_fin: '2023-12',
-      description: 'Développement d\'applications web modernes'
-    });
-  }
-
-  return {
-    nom: 'Simulé',
-    prenom: 'Candidat',
-    email: emailMatch ? emailMatch[0] : 'candidat@example.com',
-    telephone: phoneMatch ? phoneMatch[0] : null,
-    poste: text.includes('développeur') ? 'Développeur' :
-           text.includes('manager') ? 'Manager' : null,
-    entreprise: 'Entreprise Actuelle',
-    profil: 'Professionnel avec expérience en développement et gestion de projets.',
-    adresse: { ville: 'Paris', pays: 'France' },
-    linkedin: linkedinMatch ? `https://linkedin.com/in/${linkedinMatch[1]}` : null,
-    github: githubMatch ? `https://github.com/${githubMatch[1]}` : null,
-    competences: foundSkills.length > 0 ? foundSkills : ['JavaScript', 'React', 'Node.js'],
-    metiers: ['Développement Logiciel'],
-    soft_skills: ['Travail d\'équipe', 'Résolution de problèmes'],
-    annees_experience: 5,
-    niveau_experience: 'Senior',
-    experiences: experiences,
-    formations: [
-      {
-        diplome: 'Master en Informatique',
-        etablissement: 'Université Paris',
-        date_debut: '2015',
-        date_fin: '2017'
-      }
-    ],
-    langues: [{ langue: 'Français', niveau: 'Natif' }],
-    confidence_score: 0.6, // Score de confiance plus réaliste
-    metadata: {
-      filename,
-      extraction_date: new Date().toISOString(),
-      parser: 'simulé',
-      confidence: 0.6
-    }
-  };
-}
-
-// Fonction pour extraire le texte d'un buffer
 async function extractTextFromBuffer(
   buffer: Buffer, 
   filename: string, 
   fileType: string
 ): Promise<string> {
+  console.log(`📄 Extraction texte: ${filename} (${fileType})`);
+  
+  // Pour PDF
+  if (fileType === 'application/pdf' || filename.toLowerCase().endsWith('.pdf')) {
+    return await extractTextFromPDF(buffer);
+  }
+  
+  // Pour les autres types (fallback)
   try {
-    console.log(`Extraction texte - Fichier: ${filename}, Type: ${fileType}`);
-    
-    // PDF
-    if (fileType === 'application/pdf' || filename.toLowerCase().endsWith('.pdf')) {
-      return await extractTextFromPDF(buffer);
-    }
-    
-    // DOCX
-    if (fileType.includes('word') || filename.toLowerCase().endsWith('.docx')) {
-      return await extractTextFromDOCX(buffer);
-    }
-    
-    // TXT, RTF et autres fichiers texte
-    if (fileType.includes('text') || 
-        filename.toLowerCase().endsWith('.txt') || 
-        filename.toLowerCase().endsWith('.rtf') ||
-        filename.toLowerCase().endsWith('.md')) {
-      return buffer.toString('utf-8');
-    }
-    
-    // Pour les images (OCR futur)
-    if (fileType.includes('image')) {
-      throw new Error('Extraction d\'image non supportée actuellement. Veuillez convertir en PDF ou DOCX.');
-    }
-    
-    // Fallback: essayer de décoder comme texte
-    try {
-      return buffer.toString('utf-8');
-    } catch {
-      throw new Error(`Format de fichier non supporté: ${fileType} (${filename})`);
-    }
-    
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue';
-    console.error(`Erreur extraction texte ${filename}:`, errorMessage);
-    throw new Error(`Erreur d'extraction: ${errorMessage}`);
+    return buffer.toString('utf-8');
+  } catch {
+    throw new Error(`Format non supporté: ${fileType}`);
   }
 }
 
-// Fonction d'extraction PDF (à implémenter avec pdf-parse)
 async function extractTextFromPDF(buffer: Buffer): Promise<string> {
   try {
-    // Vérifier si pdf-parse est disponible
-    let pdfParse;
-    try {
-      pdfParse = require('pdf-parse');
-    } catch {
-      console.warn('⚠️ pdf-parse non installé. Installation: npm install pdf-parse');
-      return fallbackPDFText(buffer);
-    }
-    
+    // Utiliser pdf-parse si disponible
+    const pdfParse = require('pdf-parse');
     const pdfData = await pdfParse(buffer);
-    console.log(`PDF extrait - Pages: ${pdfData.numpages}, Texte: ${pdfData.text.length} caractères`);
-    
     return pdfData.text || '';
+  } catch (error: any) {
+    console.error('⚠️ Erreur pdf-parse:', error.message);
     
-  } catch (error) {
-    console.error('Erreur extraction PDF:', error);
-    return fallbackPDFText(buffer);
-  }
-}
-
-// Fallback pour PDF sans pdf-parse
-function fallbackPDFText(buffer: Buffer): string {
-  // Essayer de lire les 1000 premiers caractères comme texte brut
-  const text = buffer.toString('utf-8', 0, 1000);
-  const cleanText = text.replace(/[^\x20-\x7E]/g, ''); // Nettoyer les caractères non-ASCII
-  return cleanText.length > 100 ? cleanText : '[PDF non parsable - Installez pdf.js]';
-}
-
-
-// Fonction d'extraction DOCX (à implémenter avec mammoth)
-async function extractTextFromDOCX(buffer: Buffer): Promise<string> {
-  try {
-    // Vérifier si mammoth est disponible
-    let mammoth;
-    try {
-      mammoth = require('mammoth');
-    } catch {
-      console.warn('⚠️ mammoth non installé. Installation: npm install mammoth');
-      return fallbackDOCXText(buffer);
-    }
-    
-    const result = await mammoth.extractRawText({ buffer });
-    console.log(`DOCX extrait - Texte: ${result.value.length} caractères`);
-    
-    return result.value || '';
-    
-  } catch (error) {
-    console.error('Erreur extraction DOCX:', error);
-    return fallbackDOCXText(buffer);
-  }
-}
-
-// Fallback pour DOCX sans mammoth
-function fallbackDOCXText(buffer: Buffer): string {
-  console.warn('Utilisation du fallback DOCX');
-  // Tentative basique d'extraction du texte
-  try {
-    // Les fichiers DOCX sont des archives ZIP, on pourrait essayer une extraction basique
-    const text = buffer.toString('utf-8', 0, Math.min(buffer.length, 10000));
+    // Fallback basique pour extraire du texte
+    const text = buffer.toString('utf-8', 0, Math.min(buffer.length, 50000));
     
     // Chercher du texte dans le buffer
-    const textMatch = text.match(/[A-Za-zÀ-ÿ0-9\s\.\-\(\)]{20,}/);
+    const textMatch = text.match(/[A-Za-zÀ-ÿ0-9\s\.\,\-\'\"\(\)\[\]\{\}\/\\:\;]{100,}/s);
     if (textMatch) {
-      return `[Fichier DOCX - Texte partiel extrait]
-      ${textMatch[0].substring(0, 500)}...
-      
-      Pour une extraction complète, installez mammoth:
-      npm install mammoth`;
+      return textMatch[0];
     }
     
-    return `[Fichier DOCX - Installez mammoth pour l'extraction]
-    Buffer size: ${buffer.length} bytes
-    Format DOCX détecté, mais mammoth n'est pas installé.`;
-  } catch {
-    return '[Fichier DOCX - Extraction impossible sans mammoth]';
+    throw new Error('Impossible d\'extraire le texte du PDF');
   }
 }
 
-// Fonction utilitaire pour analyser le type de fichier
-function detectFileType(buffer: Buffer, filename: string): string {
-  // Vérifier par extension de fichier d'abord
-  const ext = filename.toLowerCase().split('.').pop();
+// ==================== FONCTIONS D'ANALYSE DE TEXTE ====================
+
+function analyzeCVTextAdvanced(text: string): CandidatData {
+  console.log('🧠 Analyse du texte CV...');
   
-  const extensions: Record<string, string> = {
-    'pdf': 'application/pdf',
-    'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'doc': 'application/msword',
-    'txt': 'text/plain',
-    'rtf': 'application/rtf',
-    'md': 'text/markdown',
-    'html': 'text/html',
-    'htm': 'text/html'
+  // 1. Extraire les informations de base
+  const email = extractEmail(text);
+  const telephone = extractPhone(text);
+  const { nom, prenom } = extractNameFromText(text);
+  
+  // 2. Extraire les compétences
+  const competences = extractSkills(text);
+  
+  // 3. Extraire poste et entreprise
+  const poste = extractCurrentPosition(text);
+  const entreprise = extractCurrentCompany(text);
+  
+  // 4. Extraire adresse
+  const adresse = extractAddress(text);
+  
+  // 5. Extraire métiers
+  const metiers = extractMetiers(text);
+  
+  // 6. Construire l'objet complet
+  return {
+    nom,
+    prenom,
+    email,
+    telephone,
+    poste,
+    entreprise,
+    adresse,
+    competences,
+    metiers,
+    experiences: [], // À implémenter si nécessaire
+    formations: [], // À implémenter si nécessaire
+    langues: [], // À implémenter si nécessaire
+    raw_text: text.substring(0, 1000), // Limiter la taille
+    metadata: {
+      filename: 'cv.pdf',
+      filetype: 'application/pdf',
+      extraction_date: new Date().toISOString()
+    }
   };
-  
-  if (ext && extensions[ext]) {
-    return extensions[ext];
-  }
-  
-  // Vérifier par les premiers bytes (magic numbers)
-  if (buffer.length >= 4) {
-    const header = buffer.toString('hex', 0, 4);
-    
-    // PDF: %PDF
-    if (header.startsWith('25504446')) return 'application/pdf';
-    
-    // DOCX: PK (ZIP archive)
-    if (header.startsWith('504b0304')) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-    
-    // DOC: D0 CF 11 E0 (Compound File Binary Format)
-    if (header.startsWith('d0cf11e0')) return 'application/msword';
-    
-    // RTF: {\rtf
-    if (header.startsWith('7b5c7274')) return 'application/rtf';
-  }
-  
-  // Par défaut
-  return 'application/octet-stream';
 }
 
+// ==================== FONCTIONS D'EXTRACTION SPÉCIFIQUES ====================
 
+function extractEmail(text: string): string {
+  const emailMatch = text.match(/[\w\.-]+@[\w\.-]+\.\w+/);
+  return emailMatch ? emailMatch[0] : '';
+}
 
-// Exporter les fonctions utilitaires si nécessaire
-// Exporter les fonctions utilitaires si nécessaire
+function extractPhone(text: string): string {
+  const phoneMatch = text.match(/(?:\+33|0)[1-9](?:[\s\.-]?\d{2}){4}/);
+  return phoneMatch ? phoneMatch[0] : '';
+}
+
+function extractNameFromText(text: string): { nom: string, prenom: string } {
+  // Prendre les 15 premières lignes
+  const lines = text.split('\n').slice(0, 15);
+  
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+    
+    // Pattern 1: "Jean-François BOISGONTIER" (prénom + NOM en majuscules)
+    const pattern1 = trimmedLine.match(/^([A-ZÉÈÊËÀÂÄÎÏÔÖÙÛÜÇ][a-zéèêëàâäîïôöùûüç\-]+(?:\s+[A-ZÉÈÊËÀÂÄÎÏÔÖÙÛÜÇ][a-zéèêëàâäîïôöùûüç\-]+)*)\s+([A-ZÉÈÊËÀÂÄÎÏÔÖÙÛÜÇ\-]{2,})$/);
+    if (pattern1) {
+      console.log(`✅ Nom détecté (Pattern 1): ${pattern1[1]} ${pattern1[2]}`);
+      return { prenom: pattern1[1], nom: pattern1[2] };
+    }
+    
+    // Pattern 2: "BOISGONTIER Jean-François" (NOM + prénom)
+    const pattern2 = trimmedLine.match(/^([A-ZÉÈÊËÀÂÄÎÏÔÖÙÛÜÇ\-]{2,})\s+([A-ZÉÈÊËÀÂÄÎÏÔÖÙÛÜÇ][a-zéèêëàâäîïôöùûüç\-]+(?:\s+[A-ZÉÈÊËÀÂÄÎÏÔÖÙÛÜÇ][a-zéèêëàâäîïôöùûüç\-]+)*)$/);
+    if (pattern2) {
+      console.log(`✅ Nom détecté (Pattern 2): ${pattern2[1]} ${pattern2[2]}`);
+      return { nom: pattern2[1], prenom: pattern2[2] };
+    }
+    
+    // Pattern 3: Ligne avec au moins 2 mots commençant par une majuscule
+    if (trimmedLine.length > 5 && trimmedLine.length < 50) {
+      const words = trimmedLine.split(/\s+/);
+      if (words.length >= 2) {
+        const allValid = words.every(word => /^[A-ZÉÈÊËÀÂÄÎÏÔÖÙÛÜÇ]/.test(word));
+        if (allValid) {
+          // Dernier mot = nom de famille (convention française)
+          return { 
+            prenom: words.slice(0, -1).join(' '), 
+            nom: words[words.length - 1] 
+          };
+        }
+      }
+    }
+  }
+  
+  console.log('⚠️ Nom non détecté');
+  return { nom: '', prenom: '' };
+}
+
+function extractSkills(text: string): string[] {
+  const skills = new Set<string>();
+  const lowerText = text.toLowerCase();
+  
+  // 1. Liste de compétences techniques courantes
+  const techSkills = [
+    'javascript', 'typescript', 'react', 'node.js', 'node', 'python', 'java',
+    'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'terraform', 'ansible',
+    'sql', 'mysql', 'postgresql', 'mongodb', 'redis', 'elasticsearch',
+    'git', 'jenkins', 'gitlab', 'github', 'ci/cd', 'devops',
+    'linux', 'windows', 'unix', 'bash', 'shell',
+    'html', 'css', 'sass', 'vue.js', 'angular', 'next.js', 'react native',
+    'spring', '.net', 'django', 'flask', 'express',
+    'jira', 'confluence', 'agile', 'scrum', 'kanban'
+  ];
+  
+  for (const skill of techSkills) {
+    if (lowerText.includes(skill)) {
+      skills.add(skill.charAt(0).toUpperCase() + skill.slice(1));
+    }
+  }
+  
+  // 2. Chercher la section "Compétences"
+  const skillsSection = text.match(/Compétences[:\s\n]+([^•\n]+(?:\n[^•\n]+)*)/i);
+  if (skillsSection && skillsSection[1]) {
+    const skillsText = skillsSection[1];
+    const lines = skillsText.split(/[\n•\-]/);
+    
+    for (const line of lines) {
+      const cleanLine = line.replace(/[:：]/g, ',').trim();
+      if (cleanLine) {
+        const items = cleanLine.split(/[,;]/);
+        for (const item of items) {
+          const skill = item.trim();
+          if (skill && skill.length > 1 && skill.length < 50 && !skill.includes('@')) {
+            skills.add(skill);
+          }
+        }
+      }
+    }
+  }
+  
+  // 3. Chercher des compétences dans tout le texte (mots en majuscules courts)
+  const uppercaseWords = text.match(/\b[A-Z]{2,}[A-Z0-9]*\b/g);
+  if (uppercaseWords) {
+    for (const word of uppercaseWords) {
+      if (word.length > 2 && word.length < 10) {
+        // Vérifier si c'est une technologie connue
+        const knownTechs = ['API', 'REST', 'JSON', 'XML', 'HTTP', 'HTTPS', 'SSH', 'SSL', 'TLS'];
+        if (knownTechs.includes(word)) {
+          skills.add(word);
+        }
+      }
+    }
+  }
+  
+  // Convertir en tableau et limiter
+  const skillsArray = Array.from(skills);
+  return skillsArray.slice(0, 20);
+}
+
+function extractCurrentPosition(text: string): string {
+  const lines = text.split('\n').slice(0, 20);
+  
+  for (const line of lines) {
+    const trimmed = line.trim();
+    
+    // Chercher des titres professionnels
+    const positionPatterns = [
+      /Chef\s+de\s+projet/i,
+      /Développeur/i,
+      /Ingénieur/i,
+      /Architecte/i,
+      /Consultant/i,
+      /Manager/i,
+      /Analyste/i,
+      /Designer/i,
+      /Product\s+Owner/i,
+      /Scrum\s+Master/i,
+      /DevOps/i,
+      /SysOps/i,
+      /Administrateur/i,
+      /Technicien/i
+    ];
+    
+    for (const pattern of positionPatterns) {
+      if (pattern.test(trimmed) && !trimmed.includes('@') && trimmed.length > 5 && trimmed.length < 100) {
+        console.log(`✅ Poste détecté: ${trimmed}`);
+        return trimmed;
+      }
+    }
+  }
+  
+  // Chercher dans tout le texte
+  for (const pattern of [/Chef de projet.*?\n/i, /Ingénieur.*?\n/i, /Développeur.*?\n/i]) {
+    const match = text.match(pattern);
+    if (match) {
+      return match[0].trim();
+    }
+  }
+  
+  return '';
+}
+
+function extractCurrentCompany(text: string): string {
+  // Chercher après le poste ou dans les expériences
+  const expMatch = text.match(/(\d{4}).*?[-–]\s*(?:.*?)[-–]\s*([^\n\-\(]+)/);
+  if (expMatch && expMatch[2]) {
+    const company = expMatch[2].trim();
+    if (company && company.length > 2) {
+      // Nettoyer les parenthèses
+      const cleaned = company.replace(/\(.*?\)/g, '').trim();
+      if (cleaned) {
+        console.log(`✅ Entreprise détectée: ${cleaned}`);
+        return cleaned;
+      }
+    }
+  }
+  
+  return '';
+}
+
+function extractAddress(text: string): string {
+  // Chercher des indices d'adresse
+  const patterns = [
+    /(?:habite|vit|adresse|domicilié|réside)[:\s\n]+([^\n]{10,50})/i,
+    /\b\d{5}\b.*?([A-Za-zÀ-ÿ\s]{10,30})/,
+    /([A-Za-zÀ-ÿ\s]{10,30})\s+\d{5}\s+[A-Za-zÀ-ÿ]+/i
+  ];
+  
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  }
+  
+  return '';
+}
+
+function extractMetiers(text: string): string[] {
+  const metiers = new Set<string>();
+  const lowerText = text.toLowerCase();
+  
+  // Métiers courants dans l'IT
+  const commonJobs = [
+    'développeur', 'ingénieur', 'architecte', 'consultant', 'manager',
+    'analyste', 'administrateur', 'technicien', 'chef de projet',
+    'product owner', 'scrum master', 'devops', 'data scientist',
+    'data analyst', 'ux designer', 'ui designer', 'testeur'
+  ];
+  
+  for (const metier of commonJobs) {
+    if (lowerText.includes(metier)) {
+      // Capitaliser la première lettre
+      metiers.add(metier.charAt(0).toUpperCase() + metier.slice(1));
+    }
+  }
+  
+  return Array.from(metiers);
+}
+
+function calculateConfidenceScore(candidat: CandidatData): number {
+  let score = 0;
+  
+  // Nom et prénom: +30 points
+  if (candidat.nom && candidat.prenom) score += 30;
+  else if (candidat.nom || candidat.prenom) score += 15;
+  
+  // Email: +20 points
+  if (candidat.email) score += 20;
+  
+  // Téléphone: +10 points
+  if (candidat.telephone) score += 10;
+  
+  // Poste: +15 points
+  if (candidat.poste) score += 15;
+  
+  // Compétences: +25 points (max 25)
+  const skillsScore = Math.min(candidat.competences.length * 2, 25);
+  score += skillsScore;
+  
+  // Limiter à 100
+  return Math.min(score, 100) / 100;
+}
+
+// ==================== EXPORT DES FONCTIONS UTILITAIRES ====================
+
 export {
   extractTextFromBuffer,
   extractTextFromPDF,
-  extractTextFromDOCX,
-  detectFileType, parseCV
+  extractEmail,
+  extractPhone,
+  extractNameFromText,
+  extractSkills,
+  extractCurrentPosition,
+  extractCurrentCompany,
+  extractAddress,
+  extractMetiers
 };

@@ -1,4 +1,4 @@
-// types/candidats.ts
+// app/api/parse-cv.ts
 
 export interface Candidat {
   // Champs obligatoires

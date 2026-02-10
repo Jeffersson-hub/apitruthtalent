@@ -123,8 +123,8 @@ export default async function handler(
             formations: extracted.formations || [],
             langues: extracted.langues || [],
             adresse: extracted.adresse || null,
-            linkedin: extracted.linkedin || null,
-            niveau: extracted.niveau || null,
+            niveau: null,
+            linkedin: null
           };
 
           // Insérer dans la base de données
