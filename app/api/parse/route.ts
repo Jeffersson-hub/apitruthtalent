@@ -1,177 +1,161 @@
-// app/api/parse/route.ts
-import { NextRequest, NextResponse } from 'next/server';
-import { parseCV, ParseCVResult } from '../../../services/documentParser';
+// pages/api/parse/route.ts
+import { NextResponse } from 'next/server';
+import pdf from 'pdf-parse';
+import * as mammoth from 'mammoth';
+import nlp from 'compromise';
+import natural from 'natural';
+import { chrono } from 'chrono-node';
+import Fuse from 'fuse.js';
 
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
-
-// Import conditionnel pour éviter l'erreur au build
-let supabase: any;
-
-try {
-  // Essayer d'importer normalement
-  const supabaseModule = require('../../../utils/supabase-build-safe');
-  supabase = supabaseModule.supabase;
-} catch (error) {
-  // Fallback pour le build
-  supabase = {
-    from: () => ({
-      update: () => Promise.resolve({ error: null }),
-      eq: () => ({})
-    })
-  };
+// Types pour les données extraites
+interface Candidat {
+  nom: string;
+  prenom: string;
+  email: string;
+  telephone: string;
+  competences: string[];
+  experiences: Array<{
+    periode: string;
+    poste: string;
+    entreprise: string;
+  }>;
+  formations: Array<{
+    periode: string;
+    diplome: string;
+    etablissement: string;
+  }>;
+  raw_text: string;
 }
 
-export async function POST(request: NextRequest) {
+export async function POST(request: Request) {
   try {
-    console.log('🧠 API Parse: Extraction depuis CV...');
-    
-    // Vérifier API key
+    // 1. Vérification de la clé API
     const apiKey = request.headers.get('X-API-Key');
     const expectedKey = process.env.WEBHOOK_SECRET || 'truth-talent-secret-2024';
-    
     if (apiKey !== expectedKey) {
-      return NextResponse.json(
-        { error: 'Non autorisé' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
     }
-    
-    const body = await request.json();
-    
-    const {
-      file_url,
-      filename,
-      job_id,
-      candidat_id,
-      candidate_email,
-      candidate_name
-    } = body;
-    
-    console.log('📥 Données reçues:', {
-      file_url,
-      filename,
-      job_id,
-      candidat_id,
-      note: 'Extraction depuis CV uniquement'
-    });
-    
-    if (!file_url) {
+
+    // 2. Lecture du corps de la requête
+    const { file_url, candidat_id, candidate_name, candidate_email } = await request.json();
+    if (!file_url || !candidat_id) {
       return NextResponse.json(
-        { error: 'file_url requis' },
+        { error: 'file_url et candidat_id sont requis' },
         { status: 400 }
       );
     }
-    
-    // Vérifier si supabase est configuré
-    if (!supabase) {
-      return NextResponse.json(
-        { error: 'Supabase non configuré' },
-        { status: 500 }
-      );
-    }
-    
-    // 1. TÉLÉCHARGER LE CV
-    console.log('📥 Téléchargement du fichier...');
-    
+
+    // 3. Télécharger le fichier
     const response = await fetch(file_url);
     if (!response.ok) {
-      throw new Error(`Erreur téléchargement: ${response.status} ${response.statusText}`);
+      throw new Error(`Échec du téléchargement: ${response.statusText}`);
     }
-    
     const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
-    
-    // Déterminer type de fichier
-    const fileType = filename.toLowerCase().endsWith('.pdf') 
-      ? 'application/pdf' 
-      : filename.toLowerCase().endsWith('.docx') 
+
+    // 4. Extraire le texte selon le type de fichier
+    let rawText = '';
+    const fileType = file_url.endsWith('.pdf')
+      ? 'application/pdf'
+      : file_url.endsWith('.docx')
         ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-        : 'application/octet-stream';
-    
-    // 2. PARSER LE CV
-    console.log('🔍 Extraction des informations depuis le CV...');
-    const result: ParseCVResult = await parseCV(buffer, filename, fileType);
-    
-    console.log('✅ Extraction CV réussie:', {
-      nom: result.candidat.nom,
-      prenom: result.candidat.prenom,
-      email: result.candidat.email,
-      poste: result.candidat.poste,
-      competences: result.candidat.competences?.length,
-      confidence: result.confidence_score
-    });
-    
-    // 3. METTRE À JOUR LA BASE
-    if (candidat_id) {
-      try {
-        const updateData: Record<string, any> = {};
-        
-        // Données extraites du CV
-        if (result.candidat.nom) updateData.nom = result.candidat.nom;
-        if (result.candidat.prenom) updateData.prenom = result.candidat.prenom;
-        if (result.candidat.email) updateData.email = result.candidat.email;
-        if (result.candidat.telephone) updateData.telephone = result.candidat.telephone;
-        if (result.candidat.poste) updateData.poste_actuel = result.candidat.poste;
-        if (result.candidat.entreprise) updateData.entreprise_actuelle = result.candidat.entreprise;
-        if (result.candidat.competences) updateData.competences = result.candidat.competences;
-        if (result.candidat.metiers) updateData.metiers = result.candidat.metiers;
-        if (result.candidat.annees_experience) updateData.annees_experience = result.candidat.annees_experience;
-        if (result.candidat.experiences) updateData.experiences = result.candidat.experiences;
-        if (result.candidat.formations) updateData.formations = result.candidat.formations;
-        if (result.candidat.langues) updateData.langues = result.candidat.langues;
-        
-        updateData.confidence_score = result.confidence_score;
-        updateData.parse_status = 'completed';
-        updateData.updated_at = new Date().toISOString();
-        
-        if (Object.keys(updateData).length > 0) {
-          await supabase
-            .from('candidats')
-            .update(updateData)
-            .eq('id', candidat_id);
-          
-          console.log('✅ Candidat mis à jour avec données CV');
-        }
-        
-        // Mettre à jour le job
-        if (job_id) {
-          await supabase
-            .from('parse_jobs')
-            .update({
-              status: 'completed',
-              extracted_data: result.candidat,
-              confidence_score: result.confidence_score,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', job_id);
-        }
-          
-      } catch (dbError) {
-        console.error('❌ Erreur DB:', dbError);
-      }
+        : 'text/plain';
+
+    if (fileType === 'application/pdf') {
+      const pdfData = await pdf(buffer);
+      rawText = pdfData.text;
+    } else if (fileType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+      const result = await mammoth.extractRawText({ buffer });
+      rawText = result.value;
+    } else {
+      rawText = buffer.toString('utf8');
     }
-    
-    // 4. RÉPONSE
+
+    // 5. Extraire les données avec les bibliothèques NLP
+    const candidat: Candidat = {
+      nom: extractNom(rawText, candidate_name),
+      prenom: extractPrenom(rawText),
+      email: extractEmail(rawText, candidate_email),
+      telephone: extractTelephone(rawText),
+      competences: extractCompetences(rawText),
+      experiences: extractExperiences(rawText),
+      formations: extractFormations(rawText),
+      raw_text: rawText.substring(0, 5000)
+    };
+
+    // 6. Répondre avec les données extraites
     return NextResponse.json({
       success: true,
-      data: result.candidat,
-      confidence_score: result.confidence_score,
-      source: 'cv_parsing',
-      note: 'Data extracted from CV file',
-      job_id,
-      candidat_id
+      data: candidat,
+      message: 'CV analysé avec succès'
     });
-    
-  } catch (error: any) {
-    console.error('❌ API Parse Error:', error);
-    
+
+  } catch (error) {
+    console.error('❌ Erreur:', error);
     return NextResponse.json(
-      { 
-        error: error?.message || 'Erreur extraction CV',
-        success: false 
-      },
+      { error: 'Erreur interne', details: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     );
   }
+}
+
+// Fonctions d'extraction
+function extractNom(text: string, defaultName: string): string {
+  const doc = nlp(text);
+  const people = doc.people().out('array');
+  return people[0] || defaultName.split(' ')[0] || 'Inconnu';
+}
+
+function extractPrenom(text: string): string {
+  const doc = nlp(text);
+  const people = doc.people().out('array');
+  return people.length > 1 ? people[1] : '';
+}
+
+function extractEmail(text: string, defaultEmail: string): string {
+  const emailMatch = text.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi);
+  return emailMatch ? emailMatch[0] : defaultEmail;
+}
+
+function extractTelephone(text: string): string {
+  const phoneMatch = text.match(/(?:\+33|0)[1-9](?:[\s.-]?\d{2}){4}/g);
+  return phoneMatch ? phoneMatch[0] : '';
+}
+
+
+function extractCompetences(text: string): string[] {
+  const doc = nlp(text);
+  const skills = doc.match('#Verb? #Adjective? (#Noun+){1,3}').out('array');
+  const skillKeywords = ['javascript', 'react', 'node', 'php', 'python', 'java', 'sql', 'aws', 'docker'];
+  return skills.filter((skill: string) =>
+    skillKeywords.some(keyword => skill.toLowerCase().includes(keyword))
+  );
+}
+
+function extractExperiences(text: string): Array<{ periode: string; poste: string; entreprise: string }> {
+  const experienceRegex = /(?:\d{4}\s*[-–]\s*\d{4}|de\s+\d{4}\s*à\s*\d{4})\s*:?\s*(.*?)(?:chez|@|at)\s*(.*?)(?=\n\d{4}|$)/g;
+  const experiences = [];
+  let match;
+  while ((match = experienceRegex.exec(text)) !== null) {
+    experiences.push({
+      periode: match[1].trim(),
+      poste: match[2].trim(),
+      entreprise: match[3].trim()
+    });
+  }
+  return experiences;
+}
+
+function extractFormations(text: string): Array<{ periode: string; diplome: string; etablissement: string }> {
+  const formationRegex = /(?:\d{4}\s*[-–]\s*\d{4})\s*:?\s*(.*?)(?:à|at)\s*(.*?)(?=\n\d{4}|$)/g;
+  const formations = [];
+  let match;
+  while ((match = formationRegex.exec(text)) !== null) {
+    formations.push({
+      periode: match[1].trim(),
+      diplome: match[2].trim(),
+      etablissement: match[3].trim()
+    });
+  }
+  return formations;
 }
