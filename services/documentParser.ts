@@ -1,4 +1,10 @@
 // services/documentParser.ts
+import { createClient } from '@supabase/supabase-js';
+import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
+
+// Configurer le worker (nécessaire pour pdf.js)
+GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+
 
 // Interfaces étendues avec toutes les propriétés nécessaires
 export interface CandidatData {
@@ -60,105 +66,71 @@ export interface ParseCVResult {
   };
 }
 
-export const parseCV = async (
-  buffer: Buffer, 
-  filename: string, 
+// services/documentParser.ts
+async function parseCV(
+  buffer: Buffer,
+  filename: string,
   fileType: string
-): Promise<ParseCVResult> => {
+): Promise<ParseCVResult> {
   const startTime = Date.now();
-  
-  try {
-    // 1. Extraire le texte brut
-    const rawText = await extractTextFromBuffer(buffer, filename, fileType);
-    
-    // 2. Appeler l'API DeepSeek (ou autre service)
-    const extractedData = await callDeepSeekAPI(rawText, filename);
-    
-    // 3. Calculer le temps de traitement
-    const processingTimeMs = Date.now() - startTime;
-    
-    // 4. Structurer la réponse complète
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+
+  // 1. Vérifier si ce CV a déjà été parsé (cache)
+  const fileHash = require('crypto').createHash('md5').update(buffer.toString()).digest('hex');
+  const { data: cached, error: cacheError } = await supabase
+    .from('cv_cache')
+    .select('*')
+    .eq('file_hash', fileHash)
+    .single();
+
+  if (cached) {
+    console.log('⚡ Utilisation du cache pour', filename);
     return {
-      candidat: {
-        nom: extractedData.nom || '',
-        prenom: extractedData.prenom || '',
-        email: extractedData.email || '',
-        telephone: extractedData.telephone || '',
-        poste: extractedData.poste || '',
-        entreprise: extractedData.entreprise || '',
-        competences: extractedData.competences || [],
-        metiers: extractedData.metiers || [],
-        annees_experience: extractedData.annees_experience || 0,
-        experiences: extractedData.experiences || [],
-        formations: extractedData.formations || [],
-        langues: extractedData.langues || [],
-        
-        // Nouvelles propriétés
-        raw_text: rawText.substring(0, 1000) + (rawText.length > 1000 ? '...' : ''), // Limiter la taille
-        metadata: extractedData.metadata || {
-          filename,
-          filetype: fileType,
-          extraction_date: new Date().toISOString(),
-          pages: extractedData.pages || 1,
-          word_count: rawText.split(/\s+/).length,
-          language: extractedData.language || 'fr'
-        },
-        profil: extractedData.profil || extractedData.summary || '',
-        adresse: extractedData.adresse,
-        linkedin: extractedData.linkedin,
-        github: extractedData.github,
-        portfolio: extractedData.portfolio,
-        niveau_etude: extractedData.niveau_etude,
-        niveau_experience: extractedData.niveau_experience,
-        salaire_actuel: extractedData.salaire_actuel,
-        salaire_souhaite: extractedData.salaire_souhaite,
-        disponibilite: extractedData.disponibilite,
-        mobilite: extractedData.mobilite,
-        soft_skills: extractedData.soft_skills,
-        certifications: extractedData.certifications,
-        projets: extractedData.projets
-      },
-      confidence_score: extractedData.confidence_score || 0.8,
-      raw_text: rawText,
+      candidat: cached.candidat_data as CandidatData,
+      confidence_score: cached.confidence_score,
       metadata: {
-        filename,
-        filetype: fileType,
-        extraction_date: new Date().toISOString(),
-        parser_version: '1.0.0',
-        processing_time_ms: processingTimeMs
-      }
-    };
-    
-  } catch (error) {
-    console.error('Erreur parseCV:', error);
-    
-    // Retourner une structure vide avec les bonnes propriétés
-    return {
-      candidat: {
-        nom: '',
-        prenom: '',
-        email: '',
-        competences: [],
-        metiers: [],
-        experiences: [],
-        formations: [],
-        langues: [],
-        metadata: {
-          filename,
-          filetype: fileType,
-          extraction_date: new Date().toISOString()
-        }
-      },
-      confidence_score: 0,
-      metadata: {
-        filename,
-        filetype: fileType,
-        extraction_date: new Date().toISOString(),
-        parser_version: '1.0.0',
-        processing_time_ms: Date.now() - startTime
+        ...cached.metadata,
+        cached: true
       }
     };
   }
+
+  // 2. Parser normalement si pas en cache
+  const result = await performParsing(buffer, filename, fileType);
+
+  // 3. Sauvegarder dans le cache
+  await supabase.from('cv_cache').upsert({
+    file_hash: fileHash,
+    filename,
+    candidat_data: result.candidat,
+    confidence_score: result.confidence_score,
+    metadata: result.metadata,
+    created_at: new Date().toISOString()
+  });
+
+  return result;
+}
+
+async function performParsing(buffer: Buffer, filename: string, fileType: string): Promise<ParseCVResult> {
+  // Logique existante de parsing (extractTextFromBuffer + callDeepSeekAPI)
+  const rawText = await extractTextFromBuffer(buffer, filename, fileType);
+  const extractedData = await callDeepSeekAPI(rawText, filename);
+  return {
+    candidat: extractedData,
+    confidence_score: extractedData.confidence_score || 0.7,
+    metadata: {
+      filename,
+      filetype: fileType,
+      extraction_date: new Date().toISOString(),
+      parser_version: '1.1.0',
+      processing_time_ms: Date.now()
+    }
+  };
+    
+
 };
 
 // Mettre à jour la fonction callDeepSeekAPI pour inclure toutes les données
@@ -171,52 +143,90 @@ async function callDeepSeekAPI(cvText: string, filename: string): Promise<any> {
   }
   
   try {
-    const prompt = `Extrais TOUTES les informations d'un CV professionnel.
-    
-    Retourne un objet JSON COMPLET avec toutes ces propriétés:
-    
-    INFORMATIONS PERSONNELLES:
-    - nom (string)
-    - prenom (string) 
-    - email (string)
-    - telephone (string optionnel)
-    - adresse (object optionnel avec rue, ville, code_postal, pays)
-    - linkedin (string optionnel)
-    - github (string optionnel)
-    - portfolio (string optionnel)
-    
-    PROFIL PROFESSIONNEL:
-    - poste (string optionnel, poste actuel)
-    - entreprise (string optionnel, entreprise actuelle)
-    - profil (string optionnel, résumé professionnel)
-    - niveau_etude (string optionnel)
-    - niveau_experience (string optionnel: Junior/Mid-level/Senior/Expert)
-    - annees_experience (number optionnel)
-    
-    COMPÉTENCES:
-    - competences (array de compétences techniques)
-    - soft_skills (array de compétences comportementales)
-    - metiers (array de métiers/domaines)
-    - langues (array d'objets {langue: string, niveau: string})
-    
-    PARCOURS:
-    - experiences (array d'objets avec poste, entreprise, date_debut, date_fin, description, competences_utilisees)
-    - formations (array d'objets avec diplome, etablissement, date_debut, date_fin, mention)
-    - certifications (array d'objets avec nom, organisme, date_obtention)
-    - projets (array d'objets avec nom, description, technologies, date)
-    
-    ASPECTS PRATIQUES:
-    - salaire_actuel (number optionnel)
-    - salaire_souhaite (number optionnel)
-    - disponibilite (string optionnel)
-    - mobilite (array de villes/régions optionnel)
-    
-    MÉTADONNÉES:
-    - confidence_score (number entre 0 et 1)
-    - language (string: fr/en/etc)
-    - pages (number optionnel)
-    
-    Texte CV: ${cvText.substring(0, 8000)}`;
+    const prompt = `
+Analyse ce CV professionnel et extrais TOUTES les informations dans un JSON structuré.
+Respecte EXACTEMENT cette structure (ne retourne que du JSON valide) :
+
+{
+  "nom": "string",
+  "prenom": "string",
+  "email": "string",
+  "telephone": "string|null",
+  "poste": "string|null",
+  "entreprise": "string|null",
+  "profil": "string|null",
+  "adresse": {
+    "rue": "string|null",
+    "ville": "string|null",
+    "code_postal": "string|null",
+    "pays": "string|null"
+  },
+  "linkedin": "string|null",
+  "github": "string|null",
+  "portfolio": "string|null",
+  "competences": ["string"],
+  "metiers": ["string"],
+  "soft_skills": ["string"],
+  "annees_experience": number|null,
+  "niveau_experience": "Junior"|"Mid-level"|"Senior"|"Expert"|null,
+  "experiences": [
+    {
+      "poste": "string",
+      "entreprise": "string",
+      "date_debut": "string|null", // Format: "2020-01" ou "2020"
+      "date_fin": "string|null",
+      "description": "string|null",
+      "competences_utilisees": ["string"]
+    }
+  ],
+  "formations": [
+    {
+      "diplome": "string",
+      "etablissement": "string",
+      "date_debut": "string|null",
+      "date_fin": "string|null",
+      "mention": "string|null"
+    }
+  ],
+  "langues": [
+    {
+      "langue": "string",
+      "niveau": "Débutant"|"Intermédiaire"|"Courant"|"Natif"
+    }
+  ],
+  "certifications": [
+    {
+      "nom": "string",
+      "organisme": "string",
+      "date_obtention": "string|null"
+    }
+  ],
+  "projets": [
+    {
+      "nom": "string",
+      "description": "string|null",
+      "technologies": ["string"],
+      "date": "string|null"
+    }
+  ],
+  "salaire_actuel": number|null,
+  "salaire_souhaite": number|null,
+  "disponibilite": "string|null",
+  "mobilite": ["string"]|null,
+  "confidence_score": number // 0 à 1
+}
+
+Règles strictes :
+1. Si une information est manquante, mets-la à null (ne l'omets pas).
+2. Les dates doivent être au format "AAAA-MM" ou "AAAA".
+3. "competences" doit contenir UNIQUEMENT des compétences techniques (ex: "React", "Node.js").
+4. "metiers" doit contenir des domaines/métiers (ex: "Développement Web", "Data Science").
+5. "confidence_score" doit refléter ta confiance dans l'extraction (0.8 si tout est clair, 0.3 si incertain).
+
+Texte du CV :
+${cvText.substring(0, 15000)}  // Limite pour éviter de dépasser les tokens
+`;
+
     
     const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
@@ -273,82 +283,74 @@ async function callDeepSeekAPI(cvText: string, filename: string): Promise<any> {
   }
 }
 
-// Parser simulé étendu
 function simulateParsing(cvText: string, filename: string): any {
-  // Analyse basique du texte
   const text = cvText.toLowerCase();
   const words = text.split(/\s+/).length;
-  
-  // Détection des informations
+
+  // Détection améliorée des informations
   const emailMatch = cvText.match(/[\w\.-]+@[\w\.-]+\.\w+/);
   const phoneMatch = cvText.match(/(?:\+33|0)[1-9](?:[\s\.-]?\d{2}){4}/);
-  
-  // Détection de certaines informations
-  const hasReact = text.includes('react');
-  const hasNode = text.includes('node');
-  const hasPython = text.includes('python');
-  const hasJava = text.includes('java');
-  
-  const competences = [];
-  if (hasReact) competences.push('React');
-  if (hasNode) competences.push('Node.js');
-  if (hasPython) competences.push('Python');
-  if (hasJava) competences.push('Java');
-  
+  const linkedinMatch = cvText.match(/linkedin\.com\/in\/([\w-]+)/);
+  const githubMatch = cvText.match(/github\.com\/([\w-]+)/);
+
+  // Compétences techniques courantes
+  const techSkills = [
+    'javascript', 'typescript', 'react', 'vue', 'angular', 'node', 'express',
+    'python', 'django', 'flask', 'java', 'spring', 'c#', 'php', 'laravel',
+    'sql', 'postgresql', 'mongodb', 'docker', 'kubernetes', 'aws', 'azure',
+    'git', 'html', 'css', 'sass', 'webpack', 'graphql', 'rest', 'soap'
+  ];
+
+  const foundSkills = techSkills.filter(skill => text.includes(skill));
+
+  // Expériences simulées
+  const experiences = [];
+  if (text.includes('développeur') || text.includes('developer')) {
+    experiences.push({
+      poste: 'Développeur Full Stack',
+      entreprise: 'Entreprise Tech',
+      date_debut: '2020-01',
+      date_fin: '2023-12',
+      description: 'Développement d\'applications web modernes'
+    });
+  }
+
   return {
     nom: 'Simulé',
     prenom: 'Candidat',
     email: emailMatch ? emailMatch[0] : 'candidat@example.com',
-    telephone: phoneMatch ? phoneMatch[0] : '+33 1 23 45 67 89',
-    poste: text.includes('developpeur') ? 'Développeur Full Stack' : 
-           text.includes('manager') ? 'Product Manager' : 'Consultant',
+    telephone: phoneMatch ? phoneMatch[0] : null,
+    poste: text.includes('développeur') ? 'Développeur' :
+           text.includes('manager') ? 'Manager' : null,
     entreprise: 'Entreprise Actuelle',
-    profil: 'Professionnel expérimenté avec une expertise en développement et management de projets.',
-    adresse: {
-      ville: 'Paris',
-      pays: 'France'
-    },
-    linkedin: 'https://linkedin.com/in/simule',
-    competences: competences.length > 0 ? competences : ['JavaScript', 'TypeScript', 'React', 'Node.js'],
-    metiers: ['Développeur', 'Ingénieur Logiciel'],
-    soft_skills: ['Communication', 'Travail d\'équipe', 'Résolution de problèmes'],
+    profil: 'Professionnel avec expérience en développement et gestion de projets.',
+    adresse: { ville: 'Paris', pays: 'France' },
+    linkedin: linkedinMatch ? `https://linkedin.com/in/${linkedinMatch[1]}` : null,
+    github: githubMatch ? `https://github.com/${githubMatch[1]}` : null,
+    competences: foundSkills.length > 0 ? foundSkills : ['JavaScript', 'React', 'Node.js'],
+    metiers: ['Développement Logiciel'],
+    soft_skills: ['Travail d\'équipe', 'Résolution de problèmes'],
     annees_experience: 5,
-    experiences: [
-      {
-        poste: 'Développeur Senior',
-        entreprise: 'Tech Corp',
-        date_debut: '2020-01-01',
-        date_fin: '2023-12-31',
-        description: 'Développement d\'applications web full stack'
-      }
-    ],
+    niveau_experience: 'Senior',
+    experiences: experiences,
     formations: [
       {
-        diplome: 'Master Informatique',
+        diplome: 'Master en Informatique',
         etablissement: 'Université Paris',
-        date_obtention: '2019'
+        date_debut: '2015',
+        date_fin: '2017'
       }
     ],
-    langues: [
-      { langue: 'Français', niveau: 'Natif' },
-      { langue: 'Anglais', niveau: 'Courant' }
-    ],
-    certifications: [
-      { nom: 'AWS Certified Developer', organisme: 'Amazon', date_obtention: '2022' }
-    ],
-    niveau_etude: 'Master',
-    niveau_experience: 'Senior',
-    salaire_actuel: 55000,
-    salaire_souhaite: 65000,
-    disponibilite: '1 mois',
-    mobilite: ['Paris', 'Île-de-France'],
-    confidence_score: 0.7,
-    language: text.includes('the') && text.includes('and') ? 'en' : 'fr',
-    pages: Math.ceil(words / 300)
+    langues: [{ langue: 'Français', niveau: 'Natif' }],
+    confidence_score: 0.6, // Score de confiance plus réaliste
+    metadata: {
+      filename,
+      extraction_date: new Date().toISOString(),
+      parser: 'simulé',
+      confidence: 0.6
+    }
   };
 }
-
-// services/documentParser.ts
 
 // Fonction pour extraire le texte d'un buffer
 async function extractTextFromBuffer(
@@ -421,15 +423,12 @@ async function extractTextFromPDF(buffer: Buffer): Promise<string> {
 
 // Fallback pour PDF sans pdf-parse
 function fallbackPDFText(buffer: Buffer): string {
-  console.warn('Utilisation du fallback PDF');
-  // Vous pourriez implémenter une extraction basique ou retourner un message
-  return `[Fichier PDF - Installez pdf-parse pour l'extraction complète]
-  Pour une extraction complète du PDF, installez la dépendance:
-  npm install pdf-parse
-  
-  Buffer size: ${buffer.length} bytes
-  Extraction limitée sans pdf-parse.`;
+  // Essayer de lire les 1000 premiers caractères comme texte brut
+  const text = buffer.toString('utf-8', 0, 1000);
+  const cleanText = text.replace(/[^\x20-\x7E]/g, ''); // Nettoyer les caractères non-ASCII
+  return cleanText.length > 100 ? cleanText : '[PDF non parsable - Installez pdf.js]';
 }
+
 
 // Fonction d'extraction DOCX (à implémenter avec mammoth)
 async function extractTextFromDOCX(buffer: Buffer): Promise<string> {
@@ -520,6 +519,8 @@ function detectFileType(buffer: Buffer, filename: string): string {
   // Par défaut
   return 'application/octet-stream';
 }
+
+
 
 // Exporter les fonctions utilitaires si nécessaire
 export {
