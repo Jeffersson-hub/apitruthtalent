@@ -2,6 +2,7 @@
 import pdf from 'pdf-parse';
 import * as mammoth from 'mammoth';
 import nlp from 'compromise';
+import { chrono } from 'chrono-node';
 
 export interface Experience {
   periode: string;
@@ -221,173 +222,41 @@ async function extractTextFromBuffer(
 
 // ==================== EXTRACTION ADRESSE (AMÉLIORÉE) ====================
 
-export async function extractAddress(text: string): Promise<Adresse | string | undefined> {
-  console.log('📍 Recherche d\'adresse...');
-  
-  const patterns = {
-    // Code postal + ville
-    codePostalVille: /\b((?:[0-9]{5})|(?:F-?[0-9]{5}))\s*([A-Za-zÀ-ÿ\s\-]{2,50})(?=\s|$|,|\n)/,
-    
-    // Rue, numéro, code postal, ville
-    adresseComplete: /(\d{1,5})?\s*(?:rue|avenue|av|boulevard|bd|impasse|allée|chemin|route|rte|place|pl)\s+([^,]+?)(?:,|\s+)(\d{5})\s+([A-Za-zÀ-ÿ\s\-]{2,50})/i,
-    
-    // Format: Ville (Code postal)
-    villeCodePostal: /([A-Za-zÀ-ÿ\s\-]{3,50})\s*\(?(\d{5})\)?/,
-    
-    // Indicateurs d'adresse
-    avecIndicateur: /(?:adresse|domicile|habite|vit|réside|demeure)[\s:]*([^\n]{10,80})/i
-  };
-
-  // 1. Chercher adresse complète d'abord
-  for (const [type, pattern] of Object.entries(patterns)) {
+function extractAddress(text: string): string {
+  const patterns = [
+    /(?:basé|habite|réside|adresse)[:\s\n]+([A-Za-zÀ-ÿ\s\-']+)/i,  // "Basé dans l’Hérault"
+    /\b\d{5}\s+[A-Za-zÀ-ÿ\s\-']+/g,  // Code postal + ville
+    /([A-Za-zÀ-ÿ\s\-']+)\s+\(?\d{5}\)?/g  // Ville (code postal)
+  ];
+  for (const pattern of patterns) {
     const match = text.match(pattern);
-    if (match) {
-      console.log(`✅ Adresse trouvée (${type}):`, match[0]);
-      
-      // Construire objet adresse structuré
-      const adresse: Adresse = { complete: match[0].trim() };
-      
-      if (type === 'adresseComplete') {
-        adresse.rue = `${match[1] || ''} ${match[2]}`.trim();
-        adresse.codePostal = match[3];
-        adresse.ville = match[4];
-      } else if (type === 'codePostalVille') {
-        adresse.codePostal = match[1];
-        adresse.ville = match[2];
-      } else if (type === 'villeCodePostal') {
-        adresse.ville = match[1];
-        adresse.codePostal = match[2];
-      }
-      
-      return adresse;
-    }
+    if (match) return match[0].trim();
   }
-  
-  // 2. Chercher codes postaux isolés
-  const cpMatch = text.match(/\b(?:0[1-9]|[1-8]\d|9[0-5])\d{3}\b/);
-  if (cpMatch) {
-    // Chercher la ville autour du code postal
-    const context = text.substring(
-      Math.max(0, text.indexOf(cpMatch[0]) - 30),
-      Math.min(text.length, text.indexOf(cpMatch[0]) + 50)
-    );
-    
-    const villeMatch = context.match(/([A-Za-zÀ-ÿ\s\-]{3,50})(?=\s*\d{5})|(?<=\d{5}\s*)([A-Za-zÀ-ÿ\s\-]{3,50})/);
-    
-    return {
-      codePostal: cpMatch[0],
-      ville: villeMatch ? villeMatch[0] : undefined,
-      complete: `Code postal: ${cpMatch[0]}`
-    };
-  }
-  
-  console.log('⚠️ Aucune adresse trouvée');
-  return undefined;
+  return '';
 }
 
 // ==================== EXTRACTION EXPÉRIENCES (AMÉLIORÉE) ====================
-
-export async function extractExperiences(text: string): Promise<Experience[]> {
-  console.log('💼 Recherche des expériences...');
-  
-  const experiences: Experience[] = [];
-  
-  // Détecter la section expériences
-  const sectionMatch = text.match(/(?:expériences?\s*professionnelles?|carrière|parcours\s*professionnel|emplois?\s*occupés?)[\s:]*([^]*?)(?=\n\s*(?:formations?|diplômes?|compétences?|langues?|$))/i);
-  
-  const textToAnalyze = sectionMatch ? sectionMatch[1] : text;
-  
-  // Pattern pour les expériences - Correction: retirer le 'g' flag pour exec()
-  const patterns = [
-    /(?:janv?\.?|févr?\.?|mars|avr\.?|mai|juin|juil\.?|août|sept\.?|oct\.?|nov\.?|déc\.?|\d{4})\s*[-–]\s*(?:janv?\.?|févr?\.?|mars|avr\.?|mai|juin|juil\.?|août|sept\.?|oct\.?|nov\.?|déc\.?|\d{4}|aujourd'hui|présent|current)[^]*?([^\n]{10,100}?)\s*(?:chez|@|at|–|-)\s*([^\n,]{3,50})/i,
-    
-    /([^\n]{10,100}?)\s*(?:chez|@|at)\s*([^\n,]{3,50})[,\s]+(?:du|de|from)?\s*(\d{4}|\w+\.?\s*\d{4})\s*(?:au|à|to|–|-)?\s*(\d{4}|\w+\.?\s*\d{4}|aujourd'hui|présent)/i,
-    
-    /(\d{4})\s*[-–]\s*(\d{4}|aujourd'hui|présent|current)\s*:?\s*([^\n]{10,100}?)\s*[\(\{]\s*([^\n,]{3,50})\s*[\)\}]/i
-  ];
-
-  // Pattern pour les dates seules (sans 'g' flag)
-  const datePattern = /(\d{4})\s*[-–]\s*(\d{4}|aujourd'hui|présent|current)/i;
-  
-  // 1. Chercher avec les patterns principaux
-  for (const pattern of patterns) {
-    // Créer une copie du pattern avec 'g' flag pour exec()
-    const globalPattern = new RegExp(pattern.source, 'gi');
-    let match: RegExpExecArray | null;
-    
-    while ((match = globalPattern.exec(textToAnalyze)) !== null) {
-      try {
-        let periode = '', poste = '', entreprise = '';
-        
-        if (match[1] && match[2] && match[3] && match[4]) {
-          // Pattern avec 4 groupes
-          periode = `${match[1]} - ${match[2]}`;
-          poste = match[3] || '';
-          entreprise = match[4] || '';
-        } else if (match[1] && match[2] && match[3]) {
-          // Pattern avec 3 groupes
-          periode = match[1] && match[2] ? `${match[1]} - ${match[2]}` : '';
-          poste = match[3] || '';
-          entreprise = match[4] || '';
+function extractExperiences(text: string): Array<{ periode: string; poste: string; entreprise: string }> {
+  const experiences = [];
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    const dates = chrono.fr.parse(line, new Date());
+    if (dates.length > 0) {
+      const periode = dates.map((d: { text: any; }) => d.text).join(' – ');
+      if (i + 1 < lines.length) {
+        const posteLine = lines[i + 1].trim();
+        if (i + 2 < lines.length) {
+          const entrepriseLine = lines[i + 2].trim();
+          experiences.push({ periode, poste: posteLine, entreprise: entrepriseLine });
+          i += 2;
         }
-        
-        if (poste && entreprise && poste.length > 3 && entreprise.length > 2) {
-          // Éviter les doublons
-          const exists = experiences.some(e => 
-            e.entreprise.includes(entreprise) && e.poste.includes(poste)
-          );
-          
-          if (!exists) {
-            experiences.push({
-              periode: periode.trim(),
-              poste: poste.trim(),
-              entreprise: entreprise.trim()
-            });
-          }
-        }
-      } catch (e) {
-        console.warn('Erreur parsing expérience:', e);
-        continue;
       }
     }
   }
-  
-  // 2. Chercher les dates seules
-  const globalDatePattern = new RegExp(datePattern.source, 'gi');
-  let dateMatch: RegExpExecArray | null;
-  
-  while ((dateMatch = globalDatePattern.exec(textToAnalyze)) !== null) {
-    try {
-      // ✅ Correction: dateMatch.index existe sur RegExpExecArray
-      const contextStart = Math.max(0, dateMatch.index - 50);
-      const contextEnd = Math.min(textToAnalyze.length, dateMatch.index + 100);
-      const context = textToAnalyze.substring(contextStart, contextEnd);
-      
-      // Chercher poste et entreprise dans le contexte
-      const posteMatch = context.match(/([A-Z][a-zéèêëàâäïîöôùûüç]+(?:\s+[A-Z][a-zéèêëàâäïîöôùûüç]+){1,4})/);
-      const entrepriseMatch = context.match(/(?:chez|@|at)\s*([A-Z][A-Za-z0-9\s\-&]{2,40})/i);
-      
-      if (posteMatch && entrepriseMatch) {
-        experiences.push({
-          periode: `${dateMatch[1]} - ${dateMatch[2]}`,
-          poste: posteMatch[0].trim(),
-          entreprise: entrepriseMatch[1].trim()
-        });
-      }
-    } catch (e) {
-      console.warn('Erreur parsing date:', e);
-      continue;
-    }
-  }
-  
-  // Dédupliquer et limiter
-  const uniqueExperiences = Array.from(
-    new Map(experiences.map(e => [`${e.periode}|${e.poste}|${e.entreprise}`, e])).values()
-  );
-  
-  console.log(`✅ ${uniqueExperiences.length} expériences trouvées`);
-  return uniqueExperiences.slice(0, 10);
+  return experiences;
 }
+
 
 // ==================== EXTRACTION FORMATIONS (AMÉLIORÉE) ====================
 
