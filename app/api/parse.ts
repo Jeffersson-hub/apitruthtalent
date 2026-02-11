@@ -8,143 +8,52 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
-  // CORS
-  res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader("Access-Control-Allow-Origin", "https://truthtalent.online"); 
-  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS,POST");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
-
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
-  }
-
-  if (req.method !== 'GET') {
+  if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Méthode non autorisée' });
   }
 
   try {
-    // 1️⃣ Lister les fichiers
-    const { data: files, error: listError } = await supabase
-      .storage
-      .from('truthtalent')
-      .list('cvs', { limit: 100 });
+    // 1. Récupérer le JSON envoyé par Parseur
+    const { candidat, confidence_score, filename } = req.body;
 
-    if (listError) {
-      return res.status(500).json({ 
-        error: 'Erreur listage bucket', 
-        details: listError.message 
-      });
+    // 2. Vérifier que les données sont valides
+    if (!candidat || !filename) {
+      return res.status(400).json({ error: 'Données manquantes' });
     }
 
-    const results = [];
+    // 3. Vérifier si le candidat existe déjà
+    const { data: existing } = await supabase
+      .from('candidats')
+      .select('id')
+      .eq('fichier', filename)
+      .maybeSingle();
 
-    for (const file of files || []) {
-      const extension = file.name.toLowerCase().split('.').pop();
-      const isSupported = ['pdf', 'docx', 'doc', 'txt'].includes(extension || '');
-      
-      if (!isSupported) continue;
+    if (!existing) {
+      // 4. Insérer les données dans Supabase
+      const { error: dbError } = await supabase
+        .from('candidats')
+        .insert([{
+          ...candidat,
+          fichier: filename,
+          confidence_score,
+          extraction_date: new Date().toISOString(),
+        }]);
 
-      try {
-        const fullPath = `cvs/${file.name}`;
-
-        // Télécharger le fichier
-        const { data: fileData, error: downloadError } = await supabase
-          .storage
-          .from('truthtalent')
-          .download(fullPath);
-
-        if (downloadError || !fileData) throw new Error('Fichier inaccessible');
-
-        // Convertir en Buffer
-        const arrayBuffer = await fileData.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-
-        // Déterminer le type MIME
-        const fileType = getMimeType(extension!);
-
-        // 2️⃣ Extraire données du CV
-        const parseResult = await parseCV(buffer, file.name, fileType);
-        
-        if (!parseResult || !parseResult.candidat) {
-          throw new Error('Échec de l\'extraction');
-        }
-
-        const extracted = parseResult.candidat;
-
-        // 3️⃣ Vérifier doublon
-        const { data: existing } = await supabase
-          .from('candidats')
-          .select('id')
-          .eq('fichier', file.name)
-          .maybeSingle();
-
-        if (!existing) {
-          // Préparer les données pour l'insertion
-          const candidatData = {
-            nom: extracted.nom || null,
-            prenom: extracted.prenom || null,
-            email: extracted.email || null,
-            telephone: extracted.telephone || null,
-            poste: extracted.poste || null,
-            entreprise: extracted.entreprise || null,
-            adresse: extracted.adresse ? JSON.stringify(extracted.adresse) : null,
-            competences: extracted.competences || [],
-            metiers: extracted.metiers || [],
-            experiences: extracted.experiences || [],
-            formations: extracted.formations || [],
-            langues: extracted.langues || [],
-            profil: extracted.profil || null,
-            fichier: file.name,
-            cv_filename: file.name,
-            confidence_score: parseResult.confidence_score,
-            file_type: fileType,
-            extraction_date: new Date().toISOString(),
-            extraction_details: parseResult.extraction_details
-          };
-
-          // Insérer dans la base de données
-          const { error: dbError } = await supabase
-            .from('candidats')
-            .insert([candidatData]);
-
-          if (dbError) throw new Error(`Erreur BD: ${dbError.message}`);
-
-          results.push({ 
-            path: fullPath, 
-            success: true,
-            confidence: parseResult.confidence_score,
-            details: parseResult.extraction_details
-          });
-        } else {
-          results.push({ 
-            path: fullPath, 
-            success: false,
-            error: 'Déjà en base' 
-          });
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Erreur inconnue';
-        results.push({ 
-          path: `cvs/${file.name}`, 
-          success: false,
-          error: msg 
-        });
+      if (dbError) {
+        console.error('Erreur insertion BD:', dbError);
+        return res.status(500).json({ error: 'Erreur base de données' });
       }
-    }
 
-    return res.status(200).json({ 
-      message: 'CV analysés', 
-      total: files?.length || 0,
-      processed: results.filter(r => r.success).length,
-      errors: results.filter(r => !r.success).length,
-      results 
-    });
-    
+      return res.status(200).json({ success: true, message: 'Candidat inséré' });
+    } else {
+      return res.status(200).json({ success: true, message: 'Candidat déjà en base' });
+    }
   } catch (e) {
-    const err = e instanceof Error ? e.message : 'Erreur inconnue';
-    return res.status(500).json({ error: err });
+    console.error('Erreur globale:', e);
+    return res.status(500).json({ error: 'Erreur serveur' });
   }
 }
+
 
 function getMimeType(extension: string): string {
   const mimeTypes: Record<string, string> = {
