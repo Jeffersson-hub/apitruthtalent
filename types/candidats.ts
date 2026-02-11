@@ -1,98 +1,57 @@
 // types/candidats.ts
 export interface Experience {
-  entreprise: string;
+  periode: string;
   poste: string;
-  debut: string;
-  fin: string | null;
-  description?: string | null;
+  entreprise: string;
+  description?: string;
 }
 
 export interface Formation {
-  etablissement: string;
+  periode: string;
   diplome: string;
-  date_obtention: string;
-  domaine?: string | null;
+  etablissement: string;
+  description?: string;
 }
 
 export interface Langue {
   langue: string;
-  niveau: string;
-  certification?: boolean;
+  niveau?: string;
 }
 
-export interface Candidat {
-  // Champs obligatoires
-  id?: number;
-  fichier: string;
-  cv_filename: string;
-  confidence_score: number;
-  file_type: string;
-  extraction_date: string;
-  date_extraction: string;
-  
-  // Informations personnelles
+export interface Adresse {
+  rue?: string;
+  codePostal?: string;
+  ville?: string;
+  pays?: string;
+  complete?: string;
+}
+
+export default interface Candidat {
+  id?: string;
   nom: string | null;
   prenom: string | null;
   email: string | null;
   telephone: string | null;
-  
-  // Profil professionnel
   poste: string | null;
   entreprise: string | null;
   profil: string | null;
-  
-  // Nouveau champ niveau
-  niveau: string | null; // <-- Ajouté ici
-  
-  niveau_etude?: string | null;
-  niveau_experience?: string | null;
-  annees_experience?: number | null;
-  
-  // Compétences
   competences: string[];
   metiers: string[];
-  soft_skills?: string[];
-  
-  // Parcours
-  experiences: any[];
-  formations: any[];
-  certifications?: any[];
-  projets?: any[];
-  langues: any[];
-  
-  // Contact supplémentaires
+  experiences: Experience[];
+  formations: Formation[];
+  langues: Langue[];
+  adresse: string | Adresse | null;
+  niveau: string | null;
   linkedin: string | null;
-  github?: string | null;
-  portfolio?: string | null;
-  
-  // Adresse - CORRECTION ICI : soit un objet, soit null, soit string
-  adresse: {
-    rue?: string;
-    ville?: string;
-    code_postal?: string;
-    pays?: string;
-  } | string | null;
-  
-  // Aspects pratiques
-  salaire_actuel?: number | null;
-  salaire_souhaite?: number | null;
-  disponibilite?: string | null;
-  mobilite?: string[] | null;
-  
-  // Métadonnées
-  metadata?: any;
-  raw_text?: string | null;
-  
-  // Statut
-  status?: string;
-  created_at?: string;
-  updated_at?: string;
-
-  cv_url?: string; // Ajoutez ce champ
-  postes?: string[]; // Ajoutez ce champ si utilisé
-  date_analyse?: string;
-  source_analyse?: string;
-  affinda_doc_id?: string;
+  fichier: string | null;
+  cv_filename: string | null;
+  confidence_score?: number;
+  file_type?: string;
+  extraction_date?: string;
+  date_extraction?: string;
+  extraction_details?: {
+    adresse: { found: boolean; confidence: number };
+    experiences: { count: number; confidence: number };
+    formations: { count: number; confidence: number };
+  };
 }
-
-export default Candidat;

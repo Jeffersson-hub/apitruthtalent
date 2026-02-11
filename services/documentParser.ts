@@ -1,7 +1,35 @@
 // services/documentParser.ts
-import { NextResponse } from 'next/server';
+import pdf from 'pdf-parse';
+import * as mammoth from 'mammoth';
+import nlp from 'compromise';
 
-// Interfaces de base
+export interface Experience {
+  periode: string;
+  poste: string;
+  entreprise: string;
+  description?: string;
+}
+
+export interface Formation {
+  periode: string;
+  diplome: string;
+  etablissement: string;
+  description?: string;
+}
+
+export interface Adresse {
+  rue?: string;
+  codePostal?: string;
+  ville?: string;
+  pays?: string;
+  complete?: string;
+}
+
+export interface Langue {
+  langue: string;
+  niveau?: string;
+}
+
 export interface CandidatData {
   nom: string;
   prenom: string;
@@ -11,12 +39,12 @@ export interface CandidatData {
   entreprise?: string;
   competences: string[];
   metiers: string[];
-  experiences: any[];
-  formations: any[];
-  langues: any[];
-  raw_text?: string;
-  adresse?: string;
+  experiences: Experience[];
+  formations: Formation[];
+  langues: Langue[];
+  adresse?: string | Adresse;
   profil?: string;
+  raw_text?: string;
   metadata?: {
     filename: string;
     filetype: string;
@@ -27,9 +55,15 @@ export interface CandidatData {
 export interface ParseCVResult {
   candidat: CandidatData;
   confidence_score: number;
+  extraction_details?: {
+    adresse: { found: boolean; confidence: number };
+    experiences: { count: number; confidence: number };
+    formations: { count: number; confidence: number };
+  };
 }
 
-// Fonction principale
+// ==================== FONCTION PRINCIPALE ====================
+
 export const parseCV = async (
   buffer: Buffer, 
   filename: string, 
@@ -47,24 +81,80 @@ export const parseCV = async (
     
     console.log(`✅ Texte extrait: ${rawText.length} caractères`);
     
-    // 2. Analyser le texte
-    const candidatData = analyzeCVTextAdvanced(rawText);
+    // 2. Analyser le texte avec les différentes extracteurs
+    const [
+      email,
+      telephone,
+      nomPrenom,
+      adresse,
+      competences,
+      metiers,
+      experiences,
+      formations,
+      langues,
+      posteActuel,
+      profil
+    ] = await Promise.all([
+      extractEmail(rawText),
+      extractPhone(rawText),
+      extractNameFromText(rawText),
+      extractAddress(rawText),
+      extractSkills(rawText),
+      extractMetiers(rawText),
+      extractExperiences(rawText),
+      extractFormations(rawText),
+      extractLanguages(rawText),
+      extractCurrentPosition(rawText),
+      extractProfil(rawText)
+    ]);
+
+    // 3. Extraire entreprise du poste actuel ou de la dernière expérience
+    const entreprise = extractCurrentCompany(rawText, experiences);
+
+    // 4. Construire l'objet candidat
+    const candidatData: CandidatData = {
+      nom: nomPrenom.nom,
+      prenom: nomPrenom.prenom,
+      email,
+      telephone: telephone || undefined,
+      poste: posteActuel || undefined,
+      entreprise: entreprise || undefined,
+      adresse: adresse || undefined,
+      competences,
+      metiers,
+      experiences,
+      formations,
+      langues,
+      profil: profil || undefined,
+      raw_text: rawText.substring(0, 2000), // Limiter la taille
+      metadata: {
+        filename,
+        filetype: fileType,
+        extraction_date: new Date().toISOString()
+      }
+    };
     
-    // 3. Calculer un score de confiance
+    // 5. Calculer les scores de confiance
     const confidence_score = calculateConfidenceScore(candidatData);
+    const extraction_details = {
+      adresse: { found: !!adresse, confidence: adresse ? 0.7 : 0 },
+      experiences: { count: experiences.length, confidence: experiences.length > 0 ? 0.8 : 0 },
+      formations: { count: formations.length, confidence: formations.length > 0 ? 0.9 : 0 }
+    };
     
     console.log('📊 Résultats extraction:', {
       nom: candidatData.nom,
       prenom: candidatData.prenom,
       email: candidatData.email,
-      telephone: candidatData.telephone,
-      poste: candidatData.poste,
-      competences: candidatData.competences?.length
+      adresse: !!candidatData.adresse,
+      experiences: candidatData.experiences?.length,
+      formations: candidatData.formations?.length
     });
     
     return {
       candidat: candidatData,
-      confidence_score
+      confidence_score,
+      extraction_details
     };
     
   } catch (error: any) {
@@ -92,7 +182,7 @@ export const parseCV = async (
   }
 };
 
-// ==================== FONCTIONS D'EXTRACTION DE TEXTE ====================
+// ==================== EXTRACTION DE TEXTE ====================
 
 async function extractTextFromBuffer(
   buffer: Buffer, 
@@ -101,145 +191,502 @@ async function extractTextFromBuffer(
 ): Promise<string> {
   console.log(`📄 Extraction texte: ${filename} (${fileType})`);
   
-  // Pour PDF
-  if (fileType === 'application/pdf' || filename.toLowerCase().endsWith('.pdf')) {
-    return await extractTextFromPDF(buffer);
-  }
-  
-  // Pour les autres types (fallback)
   try {
+    // PDF
+    if (fileType === 'application/pdf' || filename.toLowerCase().endsWith('.pdf')) {
+      const pdfData = await pdf(buffer);
+      return pdfData.text || '';
+    }
+    
+    // DOCX
+    if (fileType.includes('word') || filename.toLowerCase().endsWith('.docx')) {
+      const result = await mammoth.extractRawText({ buffer });
+      return result.value || '';
+    }
+    
+    // TXT et autres
     return buffer.toString('utf-8');
-  } catch {
-    throw new Error(`Format non supporté: ${fileType}`);
-  }
-}
-
-async function extractTextFromPDF(buffer: Buffer): Promise<string> {
-  try {
-    // Utiliser pdf-parse si disponible
-    const pdfParse = require('pdf-parse');
-    const pdfData = await pdfParse(buffer);
-    return pdfData.text || '';
+    
   } catch (error: any) {
-    console.error('⚠️ Erreur pdf-parse:', error.message);
+    console.error(`⚠️ Erreur extraction ${filename}:`, error.message);
     
-    // Fallback basique pour extraire du texte
-    const text = buffer.toString('utf-8', 0, Math.min(buffer.length, 50000));
-    
-    // Chercher du texte dans le buffer
-    const textMatch = text.match(/[A-Za-zÀ-ÿ0-9\s\.\,\-\'\"\(\)\[\]\{\}\/\\:\;]{100,}/s);
-    if (textMatch) {
-      return textMatch[0];
+    // Fallback: essayer de lire comme texte brut
+    try {
+      return buffer.toString('utf-8');
+    } catch {
+      throw new Error(`Impossible d'extraire le texte: ${error.message}`);
     }
-    
-    throw new Error('Impossible d\'extraire le texte du PDF');
   }
 }
 
-// ==================== FONCTIONS D'ANALYSE DE TEXTE ====================
+// ==================== EXTRACTION ADRESSE (AMÉLIORÉE) ====================
 
-function analyzeCVTextAdvanced(text: string): CandidatData {
-  console.log('🧠 Analyse du texte CV...');
+export async function extractAddress(text: string): Promise<Adresse | string | undefined> {
+  console.log('📍 Recherche d\'adresse...');
   
-  // 1. Extraire les informations de base
-  const email = extractEmail(text);
-  const telephone = extractPhone(text);
-  const { nom, prenom } = extractNameFromText(text);
-  
-  // 2. Extraire les compétences
-  const competences = extractSkills(text);
-  
-  // 3. Extraire poste et entreprise
-  const poste = extractCurrentPosition(text);
-  const entreprise = extractCurrentCompany(text);
-  
-  // 4. Extraire adresse
-  const adresse = extractAddress(text);
-  
-  // 5. Extraire métiers
-  const metiers = extractMetiers(text);
-  
-  // 6. Construire l'objet complet
-  return {
-    nom,
-    prenom,
-    email,
-    telephone,
-    poste,
-    entreprise,
-    adresse,
-    competences,
-    metiers,
-    experiences: [], // À implémenter si nécessaire
-    formations: [], // À implémenter si nécessaire
-    langues: [], // À implémenter si nécessaire
-    raw_text: text.substring(0, 1000), // Limiter la taille
-    metadata: {
-      filename: 'cv.pdf',
-      filetype: 'application/pdf',
-      extraction_date: new Date().toISOString()
-    }
+  const patterns = {
+    // Code postal + ville
+    codePostalVille: /\b((?:[0-9]{5})|(?:F-?[0-9]{5}))\s*([A-Za-zÀ-ÿ\s\-]{2,50})(?=\s|$|,|\n)/,
+    
+    // Rue, numéro, code postal, ville
+    adresseComplete: /(\d{1,5})?\s*(?:rue|avenue|av|boulevard|bd|impasse|allée|chemin|route|rte|place|pl)\s+([^,]+?)(?:,|\s+)(\d{5})\s+([A-Za-zÀ-ÿ\s\-]{2,50})/i,
+    
+    // Format: Ville (Code postal)
+    villeCodePostal: /([A-Za-zÀ-ÿ\s\-]{3,50})\s*\(?(\d{5})\)?/,
+    
+    // Indicateurs d'adresse
+    avecIndicateur: /(?:adresse|domicile|habite|vit|réside|demeure)[\s:]*([^\n]{10,80})/i
   };
+
+  // 1. Chercher adresse complète d'abord
+  for (const [type, pattern] of Object.entries(patterns)) {
+    const match = text.match(pattern);
+    if (match) {
+      console.log(`✅ Adresse trouvée (${type}):`, match[0]);
+      
+      // Construire objet adresse structuré
+      const adresse: Adresse = { complete: match[0].trim() };
+      
+      if (type === 'adresseComplete') {
+        adresse.rue = `${match[1] || ''} ${match[2]}`.trim();
+        adresse.codePostal = match[3];
+        adresse.ville = match[4];
+      } else if (type === 'codePostalVille') {
+        adresse.codePostal = match[1];
+        adresse.ville = match[2];
+      } else if (type === 'villeCodePostal') {
+        adresse.ville = match[1];
+        adresse.codePostal = match[2];
+      }
+      
+      return adresse;
+    }
+  }
+  
+  // 2. Chercher codes postaux isolés
+  const cpMatch = text.match(/\b(?:0[1-9]|[1-8]\d|9[0-5])\d{3}\b/);
+  if (cpMatch) {
+    // Chercher la ville autour du code postal
+    const context = text.substring(
+      Math.max(0, text.indexOf(cpMatch[0]) - 30),
+      Math.min(text.length, text.indexOf(cpMatch[0]) + 50)
+    );
+    
+    const villeMatch = context.match(/([A-Za-zÀ-ÿ\s\-]{3,50})(?=\s*\d{5})|(?<=\d{5}\s*)([A-Za-zÀ-ÿ\s\-]{3,50})/);
+    
+    return {
+      codePostal: cpMatch[0],
+      ville: villeMatch ? villeMatch[0] : undefined,
+      complete: `Code postal: ${cpMatch[0]}`
+    };
+  }
+  
+  console.log('⚠️ Aucune adresse trouvée');
+  return undefined;
 }
 
-// ==================== FONCTIONS D'EXTRACTION SPÉCIFIQUES ====================
+// ==================== EXTRACTION EXPÉRIENCES (AMÉLIORÉE) ====================
 
-function extractEmail(text: string): string {
+export async function extractExperiences(text: string): Promise<Experience[]> {
+  console.log('💼 Recherche des expériences...');
+  
+  const experiences: Experience[] = [];
+  
+  // Détecter la section expériences
+  const sectionMatch = text.match(/(?:expériences?\s*professionnelles?|carrière|parcours\s*professionnel|emplois?\s*occupés?)[\s:]*([^]*?)(?=\n\s*(?:formations?|diplômes?|compétences?|langues?|$))/i);
+  
+  const textToAnalyze = sectionMatch ? sectionMatch[1] : text;
+  
+  // Pattern pour les expériences - Correction: retirer le 'g' flag pour exec()
+  const patterns = [
+    /(?:janv?\.?|févr?\.?|mars|avr\.?|mai|juin|juil\.?|août|sept\.?|oct\.?|nov\.?|déc\.?|\d{4})\s*[-–]\s*(?:janv?\.?|févr?\.?|mars|avr\.?|mai|juin|juil\.?|août|sept\.?|oct\.?|nov\.?|déc\.?|\d{4}|aujourd'hui|présent|current)[^]*?([^\n]{10,100}?)\s*(?:chez|@|at|–|-)\s*([^\n,]{3,50})/i,
+    
+    /([^\n]{10,100}?)\s*(?:chez|@|at)\s*([^\n,]{3,50})[,\s]+(?:du|de|from)?\s*(\d{4}|\w+\.?\s*\d{4})\s*(?:au|à|to|–|-)?\s*(\d{4}|\w+\.?\s*\d{4}|aujourd'hui|présent)/i,
+    
+    /(\d{4})\s*[-–]\s*(\d{4}|aujourd'hui|présent|current)\s*:?\s*([^\n]{10,100}?)\s*[\(\{]\s*([^\n,]{3,50})\s*[\)\}]/i
+  ];
+
+  // Pattern pour les dates seules (sans 'g' flag)
+  const datePattern = /(\d{4})\s*[-–]\s*(\d{4}|aujourd'hui|présent|current)/i;
+  
+  // 1. Chercher avec les patterns principaux
+  for (const pattern of patterns) {
+    // Créer une copie du pattern avec 'g' flag pour exec()
+    const globalPattern = new RegExp(pattern.source, 'gi');
+    let match: RegExpExecArray | null;
+    
+    while ((match = globalPattern.exec(textToAnalyze)) !== null) {
+      try {
+        let periode = '', poste = '', entreprise = '';
+        
+        if (match[1] && match[2] && match[3] && match[4]) {
+          // Pattern avec 4 groupes
+          periode = `${match[1]} - ${match[2]}`;
+          poste = match[3] || '';
+          entreprise = match[4] || '';
+        } else if (match[1] && match[2] && match[3]) {
+          // Pattern avec 3 groupes
+          periode = match[1] && match[2] ? `${match[1]} - ${match[2]}` : '';
+          poste = match[3] || '';
+          entreprise = match[4] || '';
+        }
+        
+        if (poste && entreprise && poste.length > 3 && entreprise.length > 2) {
+          // Éviter les doublons
+          const exists = experiences.some(e => 
+            e.entreprise.includes(entreprise) && e.poste.includes(poste)
+          );
+          
+          if (!exists) {
+            experiences.push({
+              periode: periode.trim(),
+              poste: poste.trim(),
+              entreprise: entreprise.trim()
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('Erreur parsing expérience:', e);
+        continue;
+      }
+    }
+  }
+  
+  // 2. Chercher les dates seules
+  const globalDatePattern = new RegExp(datePattern.source, 'gi');
+  let dateMatch: RegExpExecArray | null;
+  
+  while ((dateMatch = globalDatePattern.exec(textToAnalyze)) !== null) {
+    try {
+      // ✅ Correction: dateMatch.index existe sur RegExpExecArray
+      const contextStart = Math.max(0, dateMatch.index - 50);
+      const contextEnd = Math.min(textToAnalyze.length, dateMatch.index + 100);
+      const context = textToAnalyze.substring(contextStart, contextEnd);
+      
+      // Chercher poste et entreprise dans le contexte
+      const posteMatch = context.match(/([A-Z][a-zéèêëàâäïîöôùûüç]+(?:\s+[A-Z][a-zéèêëàâäïîöôùûüç]+){1,4})/);
+      const entrepriseMatch = context.match(/(?:chez|@|at)\s*([A-Z][A-Za-z0-9\s\-&]{2,40})/i);
+      
+      if (posteMatch && entrepriseMatch) {
+        experiences.push({
+          periode: `${dateMatch[1]} - ${dateMatch[2]}`,
+          poste: posteMatch[0].trim(),
+          entreprise: entrepriseMatch[1].trim()
+        });
+      }
+    } catch (e) {
+      console.warn('Erreur parsing date:', e);
+      continue;
+    }
+  }
+  
+  // Dédupliquer et limiter
+  const uniqueExperiences = Array.from(
+    new Map(experiences.map(e => [`${e.periode}|${e.poste}|${e.entreprise}`, e])).values()
+  );
+  
+  console.log(`✅ ${uniqueExperiences.length} expériences trouvées`);
+  return uniqueExperiences.slice(0, 10);
+}
+
+// ==================== EXTRACTION FORMATIONS (AMÉLIORÉE) ====================
+
+export async function extractFormations(text: string): Promise<Formation[]> {
+  console.log('🎓 Recherche des formations...');
+  
+  const formations: Formation[] = [];
+  
+  // Détecter la section formations
+  const sectionMatch = text.match(/(?:formations?|diplômes?|études?|parcours\s*académique|éducation)[\s:]*([^]*?)(?=\n\s*(?:expériences?|compétences?|langues?|$))/i);
+  
+  const textToAnalyze = sectionMatch ? sectionMatch[1] : text;
+  
+  // Patterns pour les formations
+  const patterns = [
+    // Diplôme, Établissement, Année
+    /([^,\n]{10,100}?)[,\s]+(?:[–-]\s*)?([^,\n]{5,80}?)[,\s]+(\d{4})/i,
+    
+    // Année : Diplôme, Établissement
+    /(\d{4})\s*:?\s*([^,\n]{10,100}?)[,\s]+(?:[–-]\s*)?([^,\n]{5,80})/i,
+    
+    // Format avec mentions
+    /(?:Bac|Master|Licence|Doctorat|BTS|DUT|DEUG|MBA|Ingénieur|CAP|BP)[^,\n]{5,100}?(?:[–-]\s*|\()([^,\n)]{5,80})/i
+  ];
+  
+  // 1. Extraire avec les patterns principaux
+  for (const pattern of patterns) {
+    const globalPattern = new RegExp(pattern.source, 'gi');
+    let match: RegExpExecArray | null;
+    
+    while ((match = globalPattern.exec(textToAnalyze)) !== null) {
+      // ✅ Vérification explicite que match n'est pas null
+      if (!match) continue;
+      
+      try {
+        let periode = '', diplome = '', etablissement = '';
+        
+        const patternStr = pattern.toString();
+        
+        if (patternStr.includes('(\\d{4})\\s*:')) {
+          // Format: Année : Diplôme, Établissement
+          periode = match[1] || '';
+          diplome = match[2] || '';
+          etablissement = match[3] || '';
+        } else if (patternStr.includes('[^,\\n]{10,100}?')) {
+          // Format: Diplôme, Établissement, Année
+          diplome = match[1] || '';
+          etablissement = match[2] || '';
+          periode = match[3] || '';
+        } else {
+          // Format avec mentions
+          diplome = match[0] || '';
+          etablissement = match[1] || '';
+        }
+        
+        if (diplome && diplome.length > 5) {
+          // ✅ Vérifier les doublons avant d'ajouter
+          const exists = formations.some(f => 
+            f.diplome.toLowerCase().includes(diplome.toLowerCase().substring(0, 20))
+          );
+          
+          if (!exists) {
+            formations.push({
+              periode: periode.trim(),
+              diplome: diplome.trim(),
+              etablissement: etablissement.trim()
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('Erreur parsing formation:', e);
+        continue;
+      }
+    }
+  }
+  
+  // 2. Recherche spécifique pour les diplômes
+  const diplomeKeywords = ['Bac', 'Master', 'Licence', 'Doctorat', 'PhD', 'BTS', 'DUT', 'MBA', 'Ingénieur'];
+  
+  for (const keyword of diplomeKeywords) {
+    const regex = new RegExp(`${keyword}[^\\n.]{5,100}`, 'gi');
+    let match: RegExpExecArray | null;
+    
+    while ((match = regex.exec(textToAnalyze)) !== null) {
+      // ✅ Vérification explicite que match n'est pas null
+      if (!match) continue;
+      
+      try {
+        // Chercher un établissement à proximité
+        const contextStart = Math.max(0, (match.index || 0) - 30);
+        const contextEnd = Math.min(textToAnalyze.length, (match.index || 0) + 100);
+        const context = textToAnalyze.substring(contextStart, contextEnd);
+        
+        const etablissementMatch = context.match(/(?:[Uu]niversité|École|Institut|Lycée|Campus)[^,\n]{5,50}/);
+        
+        // ✅ Vérifier les doublons avec le diplome complet
+        const diplomeText = match[0].trim();
+        const exists = formations.some(f => 
+          f.diplome.toLowerCase().includes(diplomeText.toLowerCase().substring(0, 20))
+        );
+        
+        if (!exists && diplomeText.length > 5) {
+          formations.push({
+            periode: '',
+            diplome: diplomeText,
+            etablissement: etablissementMatch ? etablissementMatch[0].trim() : ''
+          });
+        }
+      } catch (e) {
+        console.warn('Erreur parsing diplome:', e);
+        continue;
+      }
+    }
+  }
+  
+  // 3. Dédupliquer avec typage explicite
+  const formationMap = new Map<string, Formation>();
+  
+  formations.forEach((formation: Formation) => {
+    const key = `${formation.diplome}|${formation.etablissement}`;
+    if (!formationMap.has(key)) {
+      formationMap.set(key, formation);
+    }
+  });
+  
+  const uniqueFormations = Array.from(formationMap.values());
+  
+  console.log(`✅ ${uniqueFormations.length} formations trouvées`);
+  return uniqueFormations.slice(0, 10);
+}
+
+// ==================== EXTRACTION LANGUES ====================
+
+// EXTRACTION LANGUES - Version corrigée
+export async function extractLanguages(text: string): Promise<Langue[]> {
+  console.log('🌐 Recherche des langues...');
+  
+  const langues: Langue[] = [];
+  const lowerText = text.toLowerCase();
+  
+  const languesConnues = [
+    'français', 'anglais', 'english', 'espagnol', 'allemand', 'italien', 
+    'portugais', 'chinois', 'japonais', 'russe', 'arabe'
+  ];
+  
+  const niveaux = ['courant', 'bilingue', 'natif', 'maternel', 'avancé', 'intermédiaire', 'débutant', 'A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+  
+  // Chercher section langues
+  const sectionMatch = text.match(/(?:langues?|linguistique)[\s:]*([^]*?)(?=\n\s*(?:compétences?|expériences?|formations?|$))/i);
+  const textToAnalyze = sectionMatch ? sectionMatch[1] : text;
+  
+  for (const langue of languesConnues) {
+    const langueRegex = new RegExp(`${langue}[^\\n]{0,50}`, 'gi');
+    
+    // ✅ Correction: utiliser RegExpExecArray au lieu de string[]
+    let match: RegExpExecArray | null;
+    
+    while ((match = langueRegex.exec(textToAnalyze)) !== null) {
+      // ✅ Vérification explicite que match n'est pas null
+      if (!match) continue;
+      
+      try {
+        const matchText = match[0];
+        
+        const niveau = niveaux.find(n => 
+          matchText.toLowerCase().includes(n.toLowerCase())
+        );
+        
+        // ✅ Nettoyer la langue extraite
+        let langueText = match[0].split(/[,;\n]/)[0].trim();
+        
+        // ✅ Enlever les caractères indésirables
+        langueText = langueText.replace(/[:\-–—]$/, '').trim();
+        
+        // ✅ Éviter les doublons
+        const exists = langues.some(l => 
+          l.langue.toLowerCase().includes(langueText.toLowerCase().substring(0, 8))
+        );
+        
+        if (!exists && langueText.length > 2) {
+          langues.push({
+            langue: langueText,
+            niveau: niveau || 'Non spécifié'
+          });
+        }
+      } catch (e) {
+        console.warn(`⚠️ Erreur parsing langue ${langue}:`, e);
+        continue;
+      }
+    }
+  }
+  
+  // ✅ Dédupliquer avec Map typé
+  const languesMap = new Map<string, Langue>();
+  
+  langues.forEach((langue: Langue) => {
+    const key = langue.langue.toLowerCase();
+    if (!languesMap.has(key)) {
+      languesMap.set(key, langue);
+    }
+  });
+  
+  const uniqueLangues = Array.from(languesMap.values());
+  
+  console.log(`✅ ${uniqueLangues.length} langues trouvées`);
+  return uniqueLangues;
+}
+
+// ==================== EXTRACTION PROFIL ====================
+
+export async function extractProfil(text: string): Promise<string | undefined> {
+  console.log('📝 Recherche du profil/résumé...');
+  
+  const patterns = [
+    /(?:profil|résumé|à propos|summary|about)[\s:]*([^]{50,500}?)(?=\n\s*(?:expériences?|formations?|compétences?|$))/i,
+    /(?:je suis|fort de|avec plus de|fort d'expérience)[^.]{30,300}\./i
+  ];
+  
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const profil = match[1] || match[0];
+      // Nettoyer
+      return profil.replace(/\n+/g, ' ').trim();
+    }
+  }
+  
+  return undefined;
+}
+
+// ==================== FONCTIONS EXISTANTES À CONSERVER ====================
+
+export async function extractEmail(text: string): Promise<string> {
   const emailMatch = text.match(/[\w\.-]+@[\w\.-]+\.\w+/);
   return emailMatch ? emailMatch[0] : '';
 }
 
-function extractPhone(text: string): string {
-  const phoneMatch = text.match(/(?:\+33|0)[1-9](?:[\s\.-]?\d{2}){4}/);
-  return phoneMatch ? phoneMatch[0] : '';
+export async function extractPhone(text: string): Promise<string> {
+  // Patterns français et internationaux
+  const patterns = [
+    /(?:\+33|0)[1-9](?:[\s\.-]?\d{2}){4}/,
+    /(?:\(0\))?[1-9](?:[\s\.-]?\d{2}){4}/,
+    /\+\d{2,3}\s*\d[\s\.-]?\d{2}[\s\.-]?\d{2}[\s\.-]?\d{2}[\s\.-]?\d{2}/
+  ];
+  
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) return match[0];
+  }
+  
+  return '';
 }
 
-function extractNameFromText(text: string): { nom: string, prenom: string } {
-  // Prendre les 15 premières lignes
-  const lines = text.split('\n').slice(0, 15);
+export async function extractNameFromText(text: string): Promise<{ nom: string, prenom: string }> {
+  // Prendre les 20 premières lignes
+  const lines = text.split('\n').slice(0, 20);
   
   for (const line of lines) {
     const trimmedLine = line.trim();
+    if (!trimmedLine || trimmedLine.length > 60) continue;
     
     // Pattern 1: "Jean-François BOISGONTIER" (prénom + NOM en majuscules)
     const pattern1 = trimmedLine.match(/^([A-ZÉÈÊËÀÂÄÎÏÔÖÙÛÜÇ][a-zéèêëàâäîïôöùûüç\-]+(?:\s+[A-ZÉÈÊËÀÂÄÎÏÔÖÙÛÜÇ][a-zéèêëàâäîïôöùûüç\-]+)*)\s+([A-ZÉÈÊËÀÂÄÎÏÔÖÙÛÜÇ\-]{2,})$/);
     if (pattern1) {
-      console.log(`✅ Nom détecté (Pattern 1): ${pattern1[1]} ${pattern1[2]}`);
       return { prenom: pattern1[1], nom: pattern1[2] };
     }
     
     // Pattern 2: "BOISGONTIER Jean-François" (NOM + prénom)
     const pattern2 = trimmedLine.match(/^([A-ZÉÈÊËÀÂÄÎÏÔÖÙÛÜÇ\-]{2,})\s+([A-ZÉÈÊËÀÂÄÎÏÔÖÙÛÜÇ][a-zéèêëàâäîïôöùûüç\-]+(?:\s+[A-ZÉÈÊËÀÂÄÎÏÔÖÙÛÜÇ][a-zéèêëàâäîïôöùûüç\-]+)*)$/);
     if (pattern2) {
-      console.log(`✅ Nom détecté (Pattern 2): ${pattern2[1]} ${pattern2[2]}`);
       return { nom: pattern2[1], prenom: pattern2[2] };
-    }
-    
-    // Pattern 3: Ligne avec au moins 2 mots commençant par une majuscule
-    if (trimmedLine.length > 5 && trimmedLine.length < 50) {
-      const words = trimmedLine.split(/\s+/);
-      if (words.length >= 2) {
-        const allValid = words.every(word => /^[A-ZÉÈÊËÀÂÄÎÏÔÖÙÛÜÇ]/.test(word));
-        if (allValid) {
-          // Dernier mot = nom de famille (convention française)
-          return { 
-            prenom: words.slice(0, -1).join(' '), 
-            nom: words[words.length - 1] 
-          };
-        }
-      }
     }
   }
   
-  console.log('⚠️ Nom non détecté');
+  // Fallback: utiliser NLP
+  try {
+    const doc = nlp(text);
+    const people = doc.people().out('array');
+    if (people.length > 0) {
+      const parts = people[0].split(' ');
+      if (parts.length >= 2) {
+        return {
+          prenom: parts.slice(0, -1).join(' '),
+          nom: parts[parts.length - 1]
+        };
+      }
+    }
+  } catch (e) {
+    // Ignorer les erreurs NLP
+  }
+  
   return { nom: '', prenom: '' };
 }
 
-function extractSkills(text: string): string[] {
+export async function extractSkills(text: string): Promise<string[]> {
   const skills = new Set<string>();
   const lowerText = text.toLowerCase();
   
-  // 1. Liste de compétences techniques courantes
+  // Compétences techniques
   const techSkills = [
     'javascript', 'typescript', 'react', 'node.js', 'node', 'python', 'java',
     'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'terraform', 'ansible',
@@ -257,139 +704,38 @@ function extractSkills(text: string): string[] {
     }
   }
   
-  // 2. Chercher la section "Compétences"
-  const skillsSection = text.match(/Compétences[:\s\n]+([^•\n]+(?:\n[^•\n]+)*)/i);
+  // Section compétences
+  const skillsSection = text.match(/(?:compétences?|savoir-faire|expertise)[\s:]*([^]*?)(?=\n\s*(?:expériences?|formations?|langues?|$))/i);
   if (skillsSection && skillsSection[1]) {
     const skillsText = skillsSection[1];
-    const lines = skillsText.split(/[\n•\-]/);
+    const lines = skillsText.split(/[\n•\-|,;]/);
     
     for (const line of lines) {
-      const cleanLine = line.replace(/[:：]/g, ',').trim();
-      if (cleanLine) {
-        const items = cleanLine.split(/[,;]/);
-        for (const item of items) {
-          const skill = item.trim();
-          if (skill && skill.length > 1 && skill.length < 50 && !skill.includes('@')) {
-            skills.add(skill);
-          }
-        }
+      const cleanLine = line.trim();
+      if (cleanLine && cleanLine.length > 1 && cleanLine.length < 50 && !cleanLine.includes('@')) {
+        // Capitaliser
+        skills.add(cleanLine.charAt(0).toUpperCase() + cleanLine.slice(1).toLowerCase());
       }
     }
   }
   
-  // 3. Chercher des compétences dans tout le texte (mots en majuscules courts)
-  const uppercaseWords = text.match(/\b[A-Z]{2,}[A-Z0-9]*\b/g);
-  if (uppercaseWords) {
-    for (const word of uppercaseWords) {
-      if (word.length > 2 && word.length < 10) {
-        // Vérifier si c'est une technologie connue
-        const knownTechs = ['API', 'REST', 'JSON', 'XML', 'HTTP', 'HTTPS', 'SSH', 'SSL', 'TLS'];
-        if (knownTechs.includes(word)) {
-          skills.add(word);
-        }
-      }
-    }
-  }
-  
-  // Convertir en tableau et limiter
-  const skillsArray = Array.from(skills);
-  return skillsArray.slice(0, 20);
+  return Array.from(skills).slice(0, 30);
 }
 
-function extractCurrentPosition(text: string): string {
-  const lines = text.split('\n').slice(0, 20);
-  
-  for (const line of lines) {
-    const trimmed = line.trim();
-    
-    // Chercher des titres professionnels
-    const positionPatterns = [
-      /Chef\s+de\s+projet/i,
-      /Développeur/i,
-      /Ingénieur/i,
-      /Architecte/i,
-      /Consultant/i,
-      /Manager/i,
-      /Analyste/i,
-      /Designer/i,
-      /Product\s+Owner/i,
-      /Scrum\s+Master/i,
-      /DevOps/i,
-      /SysOps/i,
-      /Administrateur/i,
-      /Technicien/i
-    ];
-    
-    for (const pattern of positionPatterns) {
-      if (pattern.test(trimmed) && !trimmed.includes('@') && trimmed.length > 5 && trimmed.length < 100) {
-        console.log(`✅ Poste détecté: ${trimmed}`);
-        return trimmed;
-      }
-    }
-  }
-  
-  // Chercher dans tout le texte
-  for (const pattern of [/Chef de projet.*?\n/i, /Ingénieur.*?\n/i, /Développeur.*?\n/i]) {
-    const match = text.match(pattern);
-    if (match) {
-      return match[0].trim();
-    }
-  }
-  
-  return '';
-}
-
-function extractCurrentCompany(text: string): string {
-  // Chercher après le poste ou dans les expériences
-  const expMatch = text.match(/(\d{4}).*?[-–]\s*(?:.*?)[-–]\s*([^\n\-\(]+)/);
-  if (expMatch && expMatch[2]) {
-    const company = expMatch[2].trim();
-    if (company && company.length > 2) {
-      // Nettoyer les parenthèses
-      const cleaned = company.replace(/\(.*?\)/g, '').trim();
-      if (cleaned) {
-        console.log(`✅ Entreprise détectée: ${cleaned}`);
-        return cleaned;
-      }
-    }
-  }
-  
-  return '';
-}
-
-function extractAddress(text: string): string {
-  // Chercher des indices d'adresse
-  const patterns = [
-    /(?:habite|vit|adresse|domicilié|réside)[:\s\n]+([^\n]{10,50})/i,
-    /\b\d{5}\b.*?([A-Za-zÀ-ÿ\s]{10,30})/,
-    /([A-Za-zÀ-ÿ\s]{10,30})\s+\d{5}\s+[A-Za-zÀ-ÿ]+/i
-  ];
-  
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    if (match && match[1]) {
-      return match[1].trim();
-    }
-  }
-  
-  return '';
-}
-
-function extractMetiers(text: string): string[] {
+export async function extractMetiers(text: string): Promise<string[]> {
   const metiers = new Set<string>();
   const lowerText = text.toLowerCase();
   
-  // Métiers courants dans l'IT
   const commonJobs = [
     'développeur', 'ingénieur', 'architecte', 'consultant', 'manager',
     'analyste', 'administrateur', 'technicien', 'chef de projet',
     'product owner', 'scrum master', 'devops', 'data scientist',
-    'data analyst', 'ux designer', 'ui designer', 'testeur'
+    'data analyst', 'ux designer', 'ui designer', 'testeur',
+    'lead dev', 'cto', 'directeur technique'
   ];
   
   for (const metier of commonJobs) {
     if (lowerText.includes(metier)) {
-      // Capitaliser la première lettre
       metiers.add(metier.charAt(0).toUpperCase() + metier.slice(1));
     }
   }
@@ -397,41 +743,84 @@ function extractMetiers(text: string): string[] {
   return Array.from(metiers);
 }
 
-function calculateConfidenceScore(candidat: CandidatData): number {
-  let score = 0;
+export async function extractCurrentPosition(text: string): Promise<string> {
+  // Chercher dans les 30 premières lignes
+  const lines = text.split('\n').slice(0, 30);
   
-  // Nom et prénom: +30 points
-  if (candidat.nom && candidat.prenom) score += 30;
-  else if (candidat.nom || candidat.prenom) score += 15;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    
+    const positionPatterns = [
+      /^([A-Z][a-zéèêëàâäîïôöùûüç]+(?:\s+[A-Z][a-zéèêëàâäîïôöùûüç]+){1,4})\s*(?:chez|@|at|-)/i,
+      /(Chef\s+de\s+projet|Développeur|Ingénieur|Architecte|Consultant|Manager|Analyste|Designer|DevOps)/i
+    ];
+    
+    for (const pattern of positionPatterns) {
+      const match = trimmed.match(pattern);
+      if (match) {
+        return match[1] || match[0];
+      }
+    }
+  }
   
-  // Email: +20 points
-  if (candidat.email) score += 20;
-  
-  // Téléphone: +10 points
-  if (candidat.telephone) score += 10;
-  
-  // Poste: +15 points
-  if (candidat.poste) score += 15;
-  
-  // Compétences: +25 points (max 25)
-  const skillsScore = Math.min(candidat.competences.length * 2, 25);
-  score += skillsScore;
-  
-  // Limiter à 100
-  return Math.min(score, 100) / 100;
+  return '';
 }
 
-// ==================== EXPORT DES FONCTIONS UTILITAIRES ====================
+export function extractCurrentCompany(text: string, experiences: Experience[]): string {
+  // D'abord, chercher dans la dernière expérience
+  if (experiences.length > 0) {
+    // Trier par période si possible
+    const sorted = [...experiences].sort((a, b) => {
+      const yearA = parseInt(a.periode.match(/\d{4}/)?.[0] || '0');
+      const yearB = parseInt(b.periode.match(/\d{4}/)?.[0] || '0');
+      return yearB - yearA;
+    });
+    
+    if (sorted[0].entreprise) {
+      return sorted[0].entreprise;
+    }
+  }
+  
+  // Fallback: regex dans le texte
+  const match = text.match(/(?:chez|@|at)\s*([A-Z][A-Za-z0-9\s\-&]{2,40})/i);
+  return match ? match[1] : '';
+}
 
-export {
-  extractTextFromBuffer,
-  extractTextFromPDF,
-  extractEmail,
-  extractPhone,
-  extractNameFromText,
-  extractSkills,
-  extractCurrentPosition,
-  extractCurrentCompany,
-  extractAddress,
-  extractMetiers
-};
+export function calculateConfidenceScore(candidat: CandidatData): number {
+  let score = 0;
+  let maxScore = 0;
+  
+  // Informations personnelles (40%)
+  if (candidat.nom && candidat.prenom) score += 20;
+  else if (candidat.nom || candidat.prenom) score += 10;
+  maxScore += 20;
+  
+  if (candidat.email) score += 15;
+  maxScore += 15;
+  
+  if (candidat.telephone) score += 5;
+  maxScore += 5;
+  
+  // Expériences (25%)
+  const expScore = Math.min(candidat.experiences?.length || 0, 5) * 5;
+  score += expScore;
+  maxScore += 25;
+  
+  // Formations (20%)
+  const formationScore = Math.min(candidat.formations?.length || 0, 4) * 5;
+  score += formationScore;
+  maxScore += 20;
+  
+  // Compétences (15%)
+  const skillsScore = Math.min(candidat.competences?.length || 0, 15);
+  score += skillsScore;
+  maxScore += 15;
+  
+  // Adresse (5%)
+  if (candidat.adresse) score += 5;
+  maxScore += 5;
+  
+  return Math.round((score / maxScore) * 100) / 100;
+}
+
+export default parseCV;
