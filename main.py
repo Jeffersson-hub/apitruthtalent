@@ -1,9 +1,9 @@
-# Remplace :
-# from pymongo import MongoClient
-# client = MongoClient("mongodb://localhost:27017/")
-# db = client["resume_analyzer"]
-
 # Par :
+import os
+# Dans ton main.py
+import spacy
+nlp = spacy.load("fr_core_news_sm")  # Au lieu de "fr_core_news_md"
+
 from supabase import create_client
 supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 
