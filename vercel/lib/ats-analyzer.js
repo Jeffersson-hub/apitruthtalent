@@ -1,19 +1,29 @@
+import pdfParse from 'pdf-parse';
+import mammoth from 'mammoth';
 import natural from 'natural';
-const tokenizer = new natural.WordTokenizer();
-const { JaroWinklerDistance } = natural;
 
-export function analyzeText(resumeText, jobDescription) {
-  const resumeTokens = tokenizer.tokenize(resumeText.toLowerCase());
-  const jobTokens = tokenizer.tokenize(jobDescription.toLowerCase());
+const { WordTokenizer } = natural;
+const tokenizer = new WordTokenizer();
 
-  const missingKeywords = jobTokens.filter(
-    token => !resumeTokens.some(rToken => JaroWinklerDistance(token, rToken) > 0.85)
-  );
+export async function analyzeResume(fileBuffer, filePath, jobDescription) {
+  let extractedText = "";
+  if (filePath.endsWith('.pdf')) {
+    const pdfData = await pdfParse(Buffer.from(fileBuffer));
+    extractedText = pdfData.text;
+  } else if (filePath.endsWith('.docx')) {
+    const docxData = await mammoth.extractRawText({ buffer: Buffer.from(fileBuffer) });
+    extractedText = docxData.value;
+  } else {
+    throw new Error("Format non supporté. Utilisez PDF ou DOCX.");
+  }
 
-  const score = 100 - (missingKeywords.length / jobTokens.length) * 100;
+  const tokens = tokenizer.tokenize(extractedText.toLowerCase());
+  const skills = [...new Set(tokens.filter(token => token.length > 3))].slice(0, 20);
 
   return {
-    score: Math.max(0, Math.round(score)),
-    missingKeywords: [...new Set(missingKeywords)].slice(0, 10)
+    success: true,
+    skills,
+    textPreview: extractedText.substring(0, 500),
+    atsScore: 85 // Exemple
   };
 }
