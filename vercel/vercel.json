@@ -2,7 +2,7 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/analyze.js",
+      "src": "vercel/api/analyze.js",
       "use": "@vercel/node",
       "config": { "memory": 1024, "maxDuration": 30 }
     }
