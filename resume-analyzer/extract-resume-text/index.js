@@ -1,8 +1,21 @@
 // resume-analyzer/extract-resume-text/index.js
 const { analyzeResume } = require('./resume-analyzer');
+import { createClient } from '@supabase/supabase-js';
+
+// Initialiser Supabase (ajoutez vos variables d'environnement)
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 exports.handler = async (event) => {
   try {
+    let body;
+    try {
+      body = typeof event.body === 'string' ? JSON.parse(event.body) : event;
+    } catch (e) {
+      body = event;
+    }
+    
     const { filePath, jobDescription } = JSON.parse(event.body);
 
     // 1. Télécharger le fichier depuis Supabase (ou S3)
