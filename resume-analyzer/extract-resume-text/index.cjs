@@ -1,4 +1,5 @@
 // resume-analyzer/extract-resume-text/index.cjs
+// modif extension
 const { analyzeResume } = require('./resume-analyzer');
 import { createClient } from '@supabase/supabase-js';
 
