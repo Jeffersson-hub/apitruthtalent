@@ -1,21 +1,18 @@
+import express from 'express';
 import { createClient } from '@supabase/supabase-js';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
 import { analyzeResume } from '../lib/ats-analyzer.js';
+
+const app = express();
+app.use(express.json());
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', 'https://truthtalent.online');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-
-  if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-
+app.post('/api/analyze', async (req, res) => {
   try {
     const { filePath, jobDescription } = req.body;
     if (!filePath) return res.status(400).json({ error: 'filePath is required' });
@@ -29,9 +26,12 @@ export default async function handler(req, res) {
     const fileBuffer = await file.arrayBuffer();
     const result = await analyzeResume(fileBuffer, filePath, jobDescription);
 
-    return res.status(200).json(result);
+    res.status(200).json(result);
   } catch (error) {
     console.error('Erreur:', error);
-    return res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error.message });
   }
-}
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
