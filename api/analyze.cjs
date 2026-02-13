@@ -1,3 +1,4 @@
+// api/analyze.js
 import express from 'express';
 import { createClient } from '@supabase/supabase-js';
 import pdfParse from 'pdf-parse';
@@ -34,14 +35,23 @@ app.post('/api/analyze', async (req, res) => {
     const { filePath, jobDescription } = req.body;
     if (!filePath) return res.status(400).json({ error: 'filePath is required' });
 
-    // Appeler le script resume-analyzer
-    const { stdout, stderr } = await execAsync(
-      `node ${path.join(__dirname, '../resume-analyzer/extract-resume-text/index.js')} '${JSON.stringify({ filePath, jobDescription })}'`,
-      { cwd: path.join(__dirname, '../resume-analyzer/extract-resume-text') }
-    );
+    // api/analyze.js - ligne 42
+const scriptPath = path.join(__dirname, '../resume-analyzer/extract-resume-text/index.cjs');
+console.log('Script path:', scriptPath); // Pour déboguer
 
-    if (stderr) throw new Error(stderr);
-    const analysis = JSON.parse(stdout);
+const { stdout, stderr } = await execAsync(
+  `node ${scriptPath} '${JSON.stringify({ filePath, jobDescription })}'`,
+  { cwd: path.join(__dirname, '../resume-analyzer/extract-resume-text') }
+);
+
+    // // Appeler le script resume-analyzer
+    // const { stdout, stderr } = await execAsync(
+    //   `node ${path.join(__dirname, '../resume-analyzer/extract-resume-text/index.js')} '${JSON.stringify({ filePath, jobDescription })}'`,
+    //   { cwd: path.join(__dirname, '../resume-analyzer/extract-resume-text') }
+    // );
+
+    // if (stderr) throw new Error(stderr);
+    // const analysis = JSON.parse(stdout);
 
     // 1. Télécharger le CV depuis Supabase Storage
     const { data: file, error: downloadError } = await supabase.storage
