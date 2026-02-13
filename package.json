@@ -2,11 +2,11 @@
   "name": "apitruthtalent",
   "version": "1.0.0",
   "description": "Resume Analyzer API - Migrated from AWS Lambda to Vercel",
-  "main": "api/analyze/index.js",
+  "main": "api/index.js",
   "scripts": {
     "dev": "vercel dev",
     "deploy": "vercel --prod",
-    "start": "node api/analyze/index.js"
+    "start": "node api/index.js"
   },
   "dependencies": {
     "express": "^4.18.2",
