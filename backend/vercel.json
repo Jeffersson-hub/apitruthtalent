@@ -2,15 +2,15 @@
   "version": 2,
   "builds": [
     {
-      "src": "main.py",
-      "use": "@vercel/python"
+      "src": "api/**/*.js",
+      "use": "@vercel/node"
     }
   ],
   "routes": [
     {
-      "src": "/analyze",
-      "dest": "main.py",
-      "methods": ["POST"]
+      "src": "/api/(.*)",
+      "dest": "api/$1",
+      "methods": ["GET", "POST"]
     }
   ]
 }
