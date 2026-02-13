@@ -1,0 +1,16 @@
+{
+  "name": "truthtalent-vercel-api",
+  "version": "1.0.0",
+  "main": "api/analyze.js",
+  "scripts": {},
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
+    "pdf-parse": "^1.1.1",
+    "mammoth": "^1.6.0",
+    "natural": "^6.1.1",
+    "buffer": "^6.0.3"
+  },
+  "engines": {
+    "node": ">=18.x"
+  }
+}
