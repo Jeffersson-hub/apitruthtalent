@@ -10,7 +10,7 @@
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "api/$1",
+      "dest": "vercel/api/$1",
       "methods": ["POST", "OPTIONS"]
     }
   ]
