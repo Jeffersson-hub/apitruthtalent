@@ -3,6 +3,13 @@ import { createClient } from '@supabase/supabase-js';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
 import natural from 'natural';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const execAsync = promisify(exec);
 
 const app = express();
 app.use(express.json());
@@ -26,6 +33,15 @@ app.post('/api/analyze', async (req, res) => {
   try {
     const { filePath, jobDescription } = req.body;
     if (!filePath) return res.status(400).json({ error: 'filePath is required' });
+
+    // Appeler le script resume-analyzer
+    const { stdout, stderr } = await execAsync(
+      `node ${path.join(__dirname, '../resume-analyzer/extract-resume-text/index.js')} '${JSON.stringify({ filePath, jobDescription })}'`,
+      { cwd: path.join(__dirname, '../resume-analyzer/extract-resume-text') }
+    );
+
+    if (stderr) throw new Error(stderr);
+    const analysis = JSON.parse(stdout);
 
     // 1. Télécharger le CV depuis Supabase Storage
     const { data: file, error: downloadError } = await supabase.storage
