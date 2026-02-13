@@ -7,10 +7,16 @@ import { analyzeResume } from '../lib/ats-analyzer.js';
 const app = express();
 app.use(express.json());
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+// Vérifier que les variables d'environnement sont présentes
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.error('Erreur : SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY manquant !');
+  process.exit(1); // Arrête le serveur si les clés sont manquantes
+}
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 app.post('/api/analyze', async (req, res) => {
   try {
