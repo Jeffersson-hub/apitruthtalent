@@ -3,20 +3,13 @@
   "builds": [
     {
       "src": "api/analyze.js",
-      "use": "@vercel/node",
-      "config": { "memory": 1024, "maxDuration": 30 }
-    },
-    {
-      "src": "api/upload.js",
-      "use": "@vercel/node",
-      "config": { "memory": 1024, "maxDuration": 30 }
+      "use": "@vercel/node"
     }
   ],
   "routes": [
     {
-      "src": "/api/(.*)",
-      "dest": "api/$1",
-      "methods": ["POST", "OPTIONS"]
+      "src": "/api/analyze",
+      "dest": "api/analyze.js"
     }
   ]
 }
