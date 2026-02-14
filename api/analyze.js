@@ -31,8 +31,18 @@ const technicalSkills = new Set([
 ]);
 
 app.post('/api/analyze', async (req, res) => {
+  console.log('📥 Requête reçue à /api/analyze');
+  console.log('Headers:', req.headers);
+  console.log('Body:', JSON.stringify(req.body, null, 2));
+  console.log('Content-Type:', req.headers['content-type']);
+
   try {
     const { filePath, jobDescription } = req.body;
+
+    console.log('filePath:', filePath ? 'présent' : 'manquant');
+    console.log('fileData:', fileData ? `présent (${fileData.length} caractères)` : 'manquant');
+    console.log('jobDescription:', jobDescription);
+    
     if (!filePath) return res.status(400).json({ error: 'filePath is required' });
 
     // api/analyze.js - ligne 42
