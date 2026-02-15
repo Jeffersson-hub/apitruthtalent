@@ -291,7 +291,7 @@ function extractExperiences(text) {
 /**
  * Extrait les formations
  */
-function extractEducation(text) {
+/* function extractEducation(text) {
   const education = [];
   const lines = text.split('\n');
   let inEducationSection = false;
@@ -365,6 +365,38 @@ function extractEducation(text) {
     education.push(currentEdu);
   }
   
+  return education;
+} */
+  function extractEducation(sections) {
+  const education = [];
+  const eduText = sections.education || '';
+
+  if (!eduText) return education;
+
+  const eduBlocks = eduText.split(/\n\s*\n/);
+
+  for (const block of eduBlocks) {
+    const lines = block.split('\n').filter(l => l.trim().length > 0);
+    if (lines.length < 1) continue;
+
+    const edu = {
+      diplome: lines[0],
+      etablissement: lines[1] || null,
+      annee: null
+    };
+
+    // Chercher l'année
+    for (const line of lines) {
+      const year = line.match(/\b(19|20)\d{2}\b/);
+      if (year) {
+        edu.annee = year[0];
+        break;
+      }
+    }
+
+    education.push(edu);
+  }
+
   return education;
 }
 
@@ -447,6 +479,54 @@ app.post('/api/analyze', async (req, res) => {
     const annees_experience = calculateTotalExperience(experiences);
     console.log('⏳ Années d\'expérience:', annees_experience);
 
+    // Liste des diplômes classés par niveau (du plus bas au plus haut)
+const DIPLOMES_HIERARCHIE = [
+  { nom: 'sans diplôme', niveau: 0, motsCles: ['sans diplôme', 'aucun diplôme', 'sans formation'] },
+  { nom: 'CAP', niveau: 1, motsCles: ['cap', 'certificat d\'aptitude professionnelle'] },
+  { nom: 'BEP', niveau: 2, motsCles: ['bep', 'brevet d\'études professionnelles'] },
+  { nom: 'Bac Pro', niveau: 3, motsCles: ['bac pro', 'baccalauréat professionnel'] },
+  { nom: 'Bac', niveau: 4, motsCles: ['bac', 'baccalauréat', 'bac général', 'bac technologique'] },
+  { nom: 'Bac+1', niveau: 5, motsCles: ['bac+1', 'mention complémentaire', 'mc'] },
+  { nom: 'Bac+2', niveau: 6, motsCles: ['bac+2', 'bts', 'dut', 'deust'] },
+  { nom: 'Bac+3', niveau: 7, motsCles: ['bac+3', 'licence', 'licence pro', 'bachelor'] },
+  { nom: 'Bac+4', niveau: 8, motsCles: ['bac+4', 'maîtrise', 'master 1', 'm1'] },
+  { nom: 'Bac+5', niveau: 9, motsCles: ['bac+5', 'master 2', 'master', 'diplôme d\'ingénieur', 'diplôme de grande école', 'm2'] },
+  { nom: 'Bac+6', niveau: 10, motsCles: ['bac+6', 'mastère spécialisé', 'ms'] },
+  { nom: 'Bac+8', niveau: 12, motsCles: ['bac+8', 'doctorat', 'phd', 'thèse'] }
+];
+
+    /**
+ * Extrait les diplômes du texte et retourne le plus haut niveau trouvé.
+ * @param {string} text - Texte brut du CV.
+ * @returns {string|null} - Le plus haut niveau d'étude (ex: "Bac+5").
+ */
+function extractHighestDiploma(text) {
+  if (!text || typeof text !== 'string') {
+    return null;
+  }
+
+  let highestDiploma = null;
+  let highestLevel = -1;
+
+  // Convertir le texte en minuscules pour une recherche insensible à la casse
+  const lowerText = text.toLowerCase();
+
+  for (const diploma of DIPLOMES_HIERARCHIE) {
+    for (const keyword of diploma.motsCles) {
+      if (lowerText.includes(keyword)) {
+        if (diploma.niveau > highestLevel) {
+          highestLevel = diploma.niveau;
+          highestDiploma = diploma.nom;
+        }
+        break; // Passer au diplôme suivant une fois trouvé
+      }
+    }
+  }
+
+  return highestDiploma;
+}
+
+
     // 4. Extraire le nom et prénom
     let nom = null;
     let prenom = null;
@@ -494,7 +574,8 @@ app.post('/api/analyze', async (req, res) => {
         lien: null,
         
         // Niveau et expérience
-        niveau: formations[0]?.diplome || null,
+        //niveau: formations[0]?.diplome || null,
+        niveau: extractHighestDiploma(cleanTextContent),
         annees_experience: annees_experience,
         
         // Métadonnées
