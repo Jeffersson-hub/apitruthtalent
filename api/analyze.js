@@ -470,7 +470,6 @@ app.post('/api/analyze', async (req, res) => {
     const experiences = extractExperiences(rawText);
     console.log('💼 Expériences trouvées:', experiences.length);
 
-    const formations = extractEducation(rawText);
     console.log('🎓 Formations trouvées:', formations.length);
 
     const emails = rawText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
@@ -479,52 +478,384 @@ app.post('/api/analyze', async (req, res) => {
     const annees_experience = calculateTotalExperience(experiences);
     console.log('⏳ Années d\'expérience:', annees_experience);
 
-    // Liste des diplômes classés par niveau (du plus bas au plus haut)
-const DIPLOMES_HIERARCHIE = [
-  { nom: 'sans diplôme', niveau: 0, motsCles: ['sans diplôme', 'aucun diplôme', 'sans formation'] },
-  { nom: 'CAP', niveau: 1, motsCles: ['cap', 'certificat d\'aptitude professionnelle'] },
-  { nom: 'BEP', niveau: 2, motsCles: ['bep', 'brevet d\'études professionnelles'] },
-  { nom: 'Bac Pro', niveau: 3, motsCles: ['bac pro', 'baccalauréat professionnel'] },
-  { nom: 'Bac', niveau: 4, motsCles: ['bac', 'baccalauréat', 'bac général', 'bac technologique'] },
-  { nom: 'Bac+1', niveau: 5, motsCles: ['bac+1', 'mention complémentaire', 'mc'] },
-  { nom: 'Bac+2', niveau: 6, motsCles: ['bac+2', 'bts', 'dut', 'deust'] },
-  { nom: 'Bac+3', niveau: 7, motsCles: ['bac+3', 'licence', 'licence pro', 'bachelor'] },
-  { nom: 'Bac+4', niveau: 8, motsCles: ['bac+4', 'maîtrise', 'master 1', 'm1'] },
-  { nom: 'Bac+5', niveau: 9, motsCles: ['bac+5', 'master 2', 'master', 'diplôme d\'ingénieur', 'diplôme de grande école', 'm2'] },
-  { nom: 'Bac+6', niveau: 10, motsCles: ['bac+6', 'mastère spécialisé', 'ms'] },
-  { nom: 'Bac+8', niveau: 12, motsCles: ['bac+8', 'doctorat', 'phd', 'thèse'] }
-];
+    // api/analyze.js - Version améliorée avec extraction du niveau d'étude
 
-    /**
- * Extrait les diplômes du texte et retourne le plus haut niveau trouvé.
- * @param {string} text - Texte brut du CV.
- * @returns {string|null} - Le plus haut niveau d'étude (ex: "Bac+5").
- */
-function extractHighestDiploma(text) {
-  if (!text || typeof text !== 'string') {
-    return null;
+// ============================================
+// LISTE COMPLÈTE DES DIPLÔMES FRANÇAIS (du CAP au Doctorat)
+// ============================================
+const FRENCH_DIPLOMAS = {
+  // Niveau CAP/BEP (Niveau 3)
+  cap: {
+    keywords: ['CAP', 'Certificat d\'aptitude professionnelle'],
+    niveau: 'CAP',
+    order: 1
+  },
+  bep: {
+    keywords: ['BEP', 'Brevet d\'études professionnelles'],
+    niveau: 'BEP',
+    order: 1
+  },
+  
+  // Niveau Bac (Niveau 4)
+  bac: {
+    keywords: ['BAC', 'Baccalauréat', 'Bac', 'Bac général', 'Bac technologique', 'Bac professionnel'],
+    niveau: 'BAC',
+    order: 2
+  },
+  bacpro: {
+    keywords: ['Bac Pro', 'Baccalauréat professionnel'],
+    niveau: 'BAC Pro',
+    order: 2
+  },
+  
+  // Niveau Bac+2 (Niveau 5)
+  bts: {
+    keywords: ['BTS', 'Brevet de technicien supérieur'],
+    niveau: 'BTS',
+    order: 3
+  },
+  dut: {
+    keywords: ['DUT', 'Diplôme universitaire de technologie'],
+    niveau: 'DUT',
+    order: 3
+  },
+  deug: {
+    keywords: ['DEUG', 'Diplôme d\'études universitaires générales'],
+    niveau: 'DEUG',
+    order: 3
+  },
+  
+  // Niveau Bac+3 (Licence - Niveau 6)
+  licence: {
+    keywords: ['Licence', 'Licence professionnelle', 'Bachelor', 'Bac+3'],
+    niveau: 'Licence',
+    order: 4
+  },
+  licencepro: {
+    keywords: ['Licence pro', 'Licence professionnelle'],
+    niveau: 'Licence Pro',
+    order: 4
+  },
+  
+  // Niveau Bac+4 (Niveau 6 aussi, mais intermédiaire)
+  maitrise: {
+    keywords: ['Maîtrise', 'Maitrise'],
+    niveau: 'Maîtrise',
+    order: 4.5
+  },
+  
+  // Niveau Bac+5 (Master - Niveau 7)
+  master: {
+    keywords: ['Master', 'Master 2', 'Master 1', 'Master recherche', 'Master pro', 'Bac+5', 'Diplôme d\'ingénieur', 'Ingénieur'],
+    niveau: 'Master',
+    order: 5
+  },
+  master2: {
+    keywords: ['Master 2', 'Master II'],
+    niveau: 'Master 2',
+    order: 5
+  },
+  master1: {
+    keywords: ['Master 1', 'Master I'],
+    niveau: 'Master 1',
+    order: 4.7
+  },
+  ingenieur: {
+    keywords: ['Ingénieur', 'Diplôme d\'ingénieur', 'École d\'ingénieurs'],
+    niveau: 'Ingénieur',
+    order: 5
+  },
+  commerce: {
+    keywords: ['École de commerce', 'ESC', 'HEC', 'ESSEC', 'EDHEC', 'EM Lyon'],
+    niveau: 'Master (École de commerce)',
+    order: 5
+  },
+  sciencepo: {
+    keywords: ['Sciences Po', 'IEP', 'Institut d\'études politiques'],
+    niveau: 'Master (Sciences Po)',
+    order: 5
+  },
+  
+  // Niveau Bac+8 (Doctorat - Niveau 8)
+  doctorat: {
+    keywords: ['Doctorat', 'PhD', 'Thèse', 'Docteur', 'Doctorate', 'Bac+8'],
+    niveau: 'Doctorat',
+    order: 6
+  },
+  
+  // Diplômes spécifiques
+  medecine: {
+    keywords: ['Médecine', 'Doctorat en médecine', 'DES', 'Internat'],
+    niveau: 'Doctorat (Médecine)',
+    order: 6
+  },
+  pharmacie: {
+    keywords: ['Pharmacie', 'Doctorat en pharmacie'],
+    niveau: 'Doctorat (Pharmacie)',
+    order: 6
+  },
+  architecture: {
+    keywords: ['Architecture', 'Architecte', 'DPLG'],
+    niveau: 'Master (Architecture)',
+    order: 5
+  },
+  
+  // Diplômes internationaux (reconnus en France)
+  bachelor: {
+    keywords: ['Bachelor\'s degree', 'Bachelor of Science', 'BSc', 'Bachelor of Arts', 'BA'],
+    niveau: 'Bachelor (international)',
+    order: 4
+  },
+  master_intl: {
+    keywords: ['Master\'s degree', 'Master of Science', 'MSc', 'Master of Arts', 'MA', 'MBA'],
+    niveau: 'Master (international)',
+    order: 5
+  },
+  phd: {
+    keywords: ['PhD', 'Doctor of Philosophy'],
+    niveau: 'Doctorat (international)',
+    order: 6
   }
+};
 
-  let highestDiploma = null;
-  let highestLevel = -1;
+// ============================================
+// FONCTION D'EXTRACTION DU PLUS HAUT NIVEAU D'ÉTUDE
+// ============================================
 
-  // Convertir le texte en minuscules pour une recherche insensible à la casse
-  const lowerText = text.toLowerCase();
-
-  for (const diploma of DIPLOMES_HIERARCHIE) {
-    for (const keyword of diploma.motsCles) {
-      if (lowerText.includes(keyword)) {
-        if (diploma.niveau > highestLevel) {
-          highestLevel = diploma.niveau;
-          highestDiploma = diploma.nom;
+/**
+ * Extrait le plus haut niveau d'étude à partir du texte du CV
+ * @param {string} text - Texte complet du CV
+ * @param {Array} formations - Liste des formations déjà extraites
+ * @returns {string} - Le plus haut niveau d'étude trouvé
+ */
+function extractHighestEducationLevel(text, formations = []) {
+  console.log('🔍 Recherche du niveau d\'étude...');
+  
+  // 1. D'abord, chercher dans les formations déjà extraites (souvent plus fiable)
+  let highestLevel = null;
+  let highestOrder = 0;
+  
+  if (formations && formations.length > 0) {
+    console.log('📚 Analyse des formations extraites:', formations.length);
+    
+    for (const formation of formations) {
+      const formationText = JSON.stringify(formation).toLowerCase();
+      
+      for (const [key, diploma] of Object.entries(FRENCH_DIPLOMAS)) {
+        for (const keyword of diploma.keywords) {
+          if (formationText.includes(keyword.toLowerCase())) {
+            console.log(`✅ Diplôme trouvé dans formations: ${diploma.niveau} (ordre: ${diploma.order})`);
+            if (diploma.order > highestOrder) {
+              highestOrder = diploma.order;
+              highestLevel = diploma.niveau;
+            }
+            break;
+          }
         }
-        break; // Passer au diplôme suivant une fois trouvé
       }
     }
   }
-
-  return highestDiploma;
+  
+  // 2. Si rien trouvé dans les formations, chercher dans tout le texte
+  if (!highestLevel) {
+    console.log('📄 Recherche dans le texte complet du CV...');
+    const textLower = text.toLowerCase();
+    
+    // Chercher d'abord les diplômes les plus élevés (pour éviter les faux positifs)
+    const diplomasByOrder = Object.entries(FRENCH_DIPLOMAS)
+      .sort((a, b) => b[1].order - a[1].order);
+    
+    for (const [key, diploma] of diplomasByOrder) {
+      for (const keyword of diploma.keywords) {
+        // Recherche avec contexte (mot entier)
+        const regex = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+        if (regex.test(textLower)) {
+          console.log(`✅ Diplôme trouvé dans texte: ${diploma.niveau} (mot-clé: ${keyword})`);
+          highestLevel = diploma.niveau;
+          highestOrder = diploma.order;
+          break;
+        }
+      }
+      if (highestLevel) break;
+    }
+  }
+  
+  // 3. Chercher les mentions de "Bac+X"
+  if (!highestLevel) {
+    const bacPlusRegex = /bac[+\s]*(\d+)/i;
+    const match = text.match(bacPlusRegex);
+    if (match) {
+      const years = parseInt(match[1]);
+      console.log(`✅ Niveau Bac+${years} trouvé`);
+      
+      if (years >= 8) highestLevel = 'Doctorat (Bac+8)';
+      else if (years >= 5) highestLevel = 'Master (Bac+5)';
+      else if (years >= 3) highestLevel = 'Licence (Bac+3)';
+      else if (years >= 2) highestLevel = 'BTS/DUT (Bac+2)';
+      else highestLevel = `Bac+${years}`;
+    }
+  }
+  
+  // 4. Chercher dans les titres de poste et descriptions
+  if (!highestLevel) {
+    // Liste de mots-clés contextuels
+    const contextKeywords = [
+      { keyword: 'docteur', level: 'Doctorat' },
+      { keyword: 'docteure', level: 'Doctorat' },
+      { keyword: 'phd', level: 'Doctorat' },
+      { keyword: 'ingénieur', level: 'Ingénieur' },
+      { keyword: 'engineer', level: 'Ingénieur' },
+      { keyword: 'master', level: 'Master' },
+      { keyword: 'masterisé', level: 'Master' },
+      { keyword: 'bac+5', level: 'Master' },
+      { keyword: 'bac+4', level: 'Maîtrise' },
+      { keyword: 'bac+3', level: 'Licence' },
+      { keyword: 'bac+2', level: 'BTS/DUT' },
+      { keyword: 'bts', level: 'BTS' },
+      { keyword: 'dut', level: 'DUT' },
+      { keyword: 'licence', level: 'Licence' },
+      { keyword: 'bachelor', level: 'Bachelor' }
+    ];
+    
+    const textLower = text.toLowerCase();
+    for (const { keyword, level } of contextKeywords) {
+      if (textLower.includes(keyword.toLowerCase())) {
+        console.log(`✅ Niveau trouvé via contexte: ${level} (mot-clé: ${keyword})`);
+        highestLevel = level;
+        break;
+      }
+    }
+  }
+  
+  // Valeur par défaut si rien trouvé
+  if (!highestLevel) {
+    console.log('⚠️ Aucun niveau d\'étude trouvé');
+    highestLevel = 'Non spécifié';
+  }
+  
+  console.log('🎓 Niveau d\'étude final:', highestLevel);
+  return highestLevel;
 }
+
+// ============================================
+// FONCTION AMÉLIORÉE D'EXTRACTION DES FORMATIONS
+// ============================================
+
+/**
+ * Extrait les formations avec plus de précision
+ */
+function extractEducationImproved(text) {
+  const education = [];
+  const lines = text.split('\n');
+  let inEduSection = false;
+  let currentEdu = null;
+  
+  const educationSectionKeywords = [
+    'formation', 'formations', 'diplôme', 'diplômes', 'cursus',
+    'éducation', 'parcours académique', 'formation initiale',
+    'études', 'diplomé', 'diplômée', 'diplômé'
+  ];
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    
+    // Détection de la section formation
+    if (!inEduSection) {
+      const isEducationSection = educationSectionKeywords.some(keyword => 
+        line.toLowerCase().includes(keyword) && line.length < 60
+      );
+      
+      if (isEducationSection) {
+        inEduSection = true;
+        console.log('📚 Section formation détectée:', line);
+        continue;
+      }
+    }
+    
+    if (!inEduSection) continue;
+    
+    // Détection d'une nouvelle formation (année OU diplôme)
+    const hasYear = /\b(19|20)\d{2}\b/.test(line);
+    const hasDiploma = Object.values(FRENCH_DIPLOMAS).some(diploma =>
+      diploma.keywords.some(keyword => 
+        line.toLowerCase().includes(keyword.toLowerCase())
+      )
+    );
+    
+    if ((hasYear || hasDiploma) && line.length > 5) {
+      if (currentEdu) {
+        education.push(currentEdu);
+      }
+      
+      currentEdu = {
+        diplome: line,
+        etablissement: null,
+        annee: hasYear ? line.match(/\b(19|20)\d{2}\b/)[0] : null
+      };
+    } 
+    // Si on a déjà une formation en cours, essayer d'ajouter l'établissement
+    else if (currentEdu && !currentEdu.etablissement) {
+      const schoolKeywords = ['université', 'école', 'institut', 'campus', 'faculté', 'polytech'];
+      if (schoolKeywords.some(keyword => line.toLowerCase().includes(keyword))) {
+        currentEdu.etablissement = line;
+      }
+    }
+  }
+  
+  if (currentEdu) {
+    education.push(currentEdu);
+  }
+  
+  return education;
+}
+
+// ============================================
+// PARTIE À INTÉGRER DANS VOTRE ROUTE PRINCIPALE
+// ============================================
+
+// Dans votre app.post('/api/analyze', ...), remplacez la partie "formations" et "niveau" par :
+
+// Extraire les formations avec la version améliorée
+const formations = extractEducationImproved(text);
+console.log('🎓 Formations extraites:', formations);
+
+// Extraire le plus haut niveau d'étude
+const niveau = extractHighestEducationLevel(text, formations);
+
+// ============================================
+// TEST AVEC VOTRE EXEMPLE
+// ============================================
+
+/*
+Exemple de texte de CV avec formations :
+
+"FORMATION
+2015-2017: Master 2 Informatique - Université Paris-Dauphine
+2012-2015: Licence Informatique - Université Paris-Descartes
+2009-2012: Baccalauréat Scientifique - Lycée Louis-le-Grand"
+
+La fonction extractHighestEducationLevel retournera: "Master 2"
+*/
+
+// ============================================
+// LISTE DE TOUS LES NIVEAUX POSSIBLES (pour référence)
+// ============================================
+
+/*
+Les niveaux d'étude en France (du plus bas au plus haut) :
+
+1. CAP / BEP (Niveau 3)
+2. BAC / BAC Pro (Niveau 4)
+3. BTS / DUT / DEUG (Niveau 5 - Bac+2)
+4. Licence / Licence Pro (Niveau 6 - Bac+3)
+5. Maîtrise (Bac+4)
+6. Master 1 (Bac+4)
+7. Master 2 / Ingénieur / École de commerce (Niveau 7 - Bac+5)
+8. Doctorat / PhD (Niveau 8 - Bac+8)
+
+La fonction retourne le niveau le plus élevé trouvé dans le CV.
+*/
 
 
     // 4. Extraire le nom et prénom
@@ -574,8 +905,7 @@ function extractHighestDiploma(text) {
         lien: null,
         
         // Niveau et expérience
-        //niveau: formations[0]?.diplome || null,
-        niveau: extractHighestDiploma(cleanTextContent),
+        niveau: formations[0]?.diplome || null,
         annees_experience: annees_experience,
         
         // Métadonnées
@@ -598,6 +928,7 @@ function extractHighestDiploma(text) {
       competences_liste: response.candidateInfo.competences.slice(0, 10),
       experiences: response.candidateInfo.experiences.length,
       formations: response.candidateInfo.formations.length,
+      niveau: response.candidateInfo.niveau,
       annees_experience: response.candidateInfo.annees_experience
     });
 
