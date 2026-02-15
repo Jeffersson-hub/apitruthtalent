@@ -1,4 +1,4 @@
-// api/analyze.js - Version corrigée
+// api/analyze.js - Version avec extraction améliorée du nom et prénom
 
 import express from 'express';
 import { createClient } from '@supabase/supabase-js';
@@ -19,149 +19,172 @@ const supabase = createClient(
 );
 
 // ============================================
-// LISTE COMPLÈTE DES DIPLÔMES FRANÇAIS (du CAP au Doctorat)
+// LISTE COMPLÈTE DES DIPLÔMES FRANÇAIS
 // ============================================
 const FRENCH_DIPLOMAS = {
-  // Niveau CAP/BEP (Niveau 3)
-  cap: {
-    keywords: ['CAP', 'Certificat d\'aptitude professionnelle'],
-    niveau: 'CAP',
-    order: 1
-  },
-  bep: {
-    keywords: ['BEP', 'Brevet d\'études professionnelles'],
-    niveau: 'BEP',
-    order: 1
-  },
-  
-  // Niveau Bac (Niveau 4)
-  bac: {
-    keywords: ['BAC', 'Baccalauréat', 'Bac', 'Bac général', 'Bac technologique', 'Bac professionnel'],
-    niveau: 'BAC',
-    order: 2
-  },
-  bacpro: {
-    keywords: ['Bac Pro', 'Baccalauréat professionnel'],
-    niveau: 'BAC Pro',
-    order: 2
-  },
-  
-  // Niveau Bac+2 (Niveau 5)
-  bts: {
-    keywords: ['BTS', 'Brevet de technicien supérieur'],
-    niveau: 'BTS',
-    order: 3
-  },
-  dut: {
-    keywords: ['DUT', 'Diplôme universitaire de technologie'],
-    niveau: 'DUT',
-    order: 3
-  },
-  deug: {
-    keywords: ['DEUG', 'Diplôme d\'études universitaires générales'],
-    niveau: 'DEUG',
-    order: 3
-  },
-  
-  // Niveau Bac+3 (Licence - Niveau 6)
-  licence: {
-    keywords: ['Licence', 'Licence professionnelle', 'Bachelor', 'Bac+3'],
-    niveau: 'Licence',
-    order: 4
-  },
-  licencepro: {
-    keywords: ['Licence pro', 'Licence professionnelle'],
-    niveau: 'Licence Pro',
-    order: 4
-  },
-  
-  // Niveau Bac+4 (Niveau 6 aussi, mais intermédiaire)
-  maitrise: {
-    keywords: ['Maîtrise', 'Maitrise'],
-    niveau: 'Maîtrise',
-    order: 4.5
-  },
-  
-  // Niveau Bac+5 (Master - Niveau 7)
-  master: {
-    keywords: ['Master', 'Master 2', 'Master 1', 'Master recherche', 'Master pro', 'Bac+5', 'Diplôme d\'ingénieur', 'Ingénieur'],
-    niveau: 'Master',
-    order: 5
-  },
-  master2: {
-    keywords: ['Master 2', 'Master II'],
-    niveau: 'Master 2',
-    order: 5
-  },
-  master1: {
-    keywords: ['Master 1', 'Master I'],
-    niveau: 'Master 1',
-    order: 4.7
-  },
-  ingenieur: {
-    keywords: ['Ingénieur', 'Diplôme d\'ingénieur', 'École d\'ingénieurs'],
-    niveau: 'Ingénieur',
-    order: 5
-  },
-  commerce: {
-    keywords: ['École de commerce', 'ESC', 'HEC', 'ESSEC', 'EDHEC', 'EM Lyon'],
-    niveau: 'Master (École de commerce)',
-    order: 5
-  },
-  sciencepo: {
-    keywords: ['Sciences Po', 'IEP', 'Institut d\'études politiques'],
-    niveau: 'Master (Sciences Po)',
-    order: 5
-  },
-  
-  // Niveau Bac+8 (Doctorat - Niveau 8)
-  doctorat: {
-    keywords: ['Doctorat', 'PhD', 'Thèse', 'Docteur', 'Doctorate', 'Bac+8'],
-    niveau: 'Doctorat',
-    order: 6
-  },
-  
-  // Diplômes spécifiques
-  medecine: {
-    keywords: ['Médecine', 'Doctorat en médecine', 'DES', 'Internat'],
-    niveau: 'Doctorat (Médecine)',
-    order: 6
-  },
-  pharmacie: {
-    keywords: ['Pharmacie', 'Doctorat en pharmacie'],
-    niveau: 'Doctorat (Pharmacie)',
-    order: 6
-  },
-  architecture: {
-    keywords: ['Architecture', 'Architecte', 'DPLG'],
-    niveau: 'Master (Architecture)',
-    order: 5
-  },
-  
-  // Diplômes internationaux (reconnus en France)
-  bachelor: {
-    keywords: ['Bachelor\'s degree', 'Bachelor of Science', 'BSc', 'Bachelor of Arts', 'BA'],
-    niveau: 'Bachelor (international)',
-    order: 4
-  },
-  master_intl: {
-    keywords: ['Master\'s degree', 'Master of Science', 'MSc', 'Master of Arts', 'MA', 'MBA'],
-    niveau: 'Master (international)',
-    order: 5
-  },
-  phd: {
-    keywords: ['PhD', 'Doctor of Philosophy'],
-    niveau: 'Doctorat (international)',
-    order: 6
-  }
+  cap: { keywords: ['CAP', 'Certificat d\'aptitude professionnelle'], niveau: 'CAP', order: 1 },
+  bep: { keywords: ['BEP', 'Brevet d\'études professionnelles'], niveau: 'BEP', order: 1 },
+  bac: { keywords: ['BAC', 'Baccalauréat', 'Bac'], niveau: 'BAC', order: 2 },
+  bacpro: { keywords: ['Bac Pro', 'Baccalauréat professionnel'], niveau: 'BAC Pro', order: 2 },
+  bts: { keywords: ['BTS', 'Brevet de technicien supérieur'], niveau: 'BTS', order: 3 },
+  dut: { keywords: ['DUT', 'Diplôme universitaire de technologie'], niveau: 'DUT', order: 3 },
+  licence: { keywords: ['Licence', 'Bachelor', 'Bac+3'], niveau: 'Licence', order: 4 },
+  maitrise: { keywords: ['Maîtrise', 'Maitrise'], niveau: 'Maîtrise', order: 4.5 },
+  master: { keywords: ['Master', 'Master 2', 'Master 1', 'Bac+5', 'Diplôme d\'ingénieur', 'Ingénieur'], niveau: 'Master', order: 5 },
+  doctorat: { keywords: ['Doctorat', 'PhD', 'Thèse', 'Docteur', 'Bac+8'], niveau: 'Doctorat', order: 6 }
 };
 
 // ============================================
-// FONCTIONS D'EXTRACTION
+// FONCTION AMÉLIORÉE D'EXTRACTION DU NOM ET PRÉNOM
 // ============================================
 
 /**
- * Extrait le texte brut du fichier (PDF ou DOCX)
+ * Extrait le nom et prénom de façon robuste
+ * @param {string} text - Texte complet du CV
+ * @returns {Object} - { nom, prenom, nom_complet }
+ */
+function extractNameFromCV(text) {
+  console.log('🔍 Recherche du nom et prénom...');
+  
+  // Nettoyer le texte pour l'analyse
+  const lines = text.split('\n')
+    .map(line => line.trim())
+    .filter(line => line.length > 0 && line.length < 100); // Éviter les lignes trop longues
+  
+  // ============================================
+  // STRATÉGIE 1: Chercher dans les 10 premières lignes (en-tête du CV)
+  // ============================================
+  for (let i = 0; i < Math.min(10, lines.length); i++) {
+    const line = lines[i];
+    
+    // Pattern: Prénom Nom (ex: "Jean Dupont" ou "Jean-François Dupont")
+    const namePattern1 = line.match(/^([A-Z][a-zéèêëàâîïôöûüç-]+)\s+([A-Z][a-zéèêëàâîïôöûüç]+)$/);
+    if (namePattern1) {
+      console.log('✅ Pattern 1 trouvé (Prénom Nom):', line);
+      return {
+        prenom: namePattern1[1],
+        nom: namePattern1[2],
+        nom_complet: line
+      };
+    }
+    
+    // Pattern: Nom Prénom (ex: "DUPONT Jean")
+    const namePattern2 = line.match(/^([A-Z]{2,}(?:\s+[A-Z]{2,})*)\s+([A-Z][a-zéèêëàâîïôöûüç-]+)$/);
+    if (namePattern2) {
+      console.log('✅ Pattern 2 trouvé (Nom Prénom):', line);
+      return {
+        nom: namePattern2[1],
+        prenom: namePattern2[2],
+        nom_complet: line
+      };
+    }
+    
+    // Pattern: Nom en majuscules uniquement (ex: "DUPONT JEAN")
+    const namePattern3 = line.match(/^([A-Z]{2,}(?:\s+[A-Z]{2,})+)$/);
+    if (namePattern3) {
+      console.log('✅ Pattern 3 trouvé (tout majuscule):', line);
+      const parts = line.split(' ');
+      if (parts.length >= 2) {
+        return {
+          nom: parts[0],
+          prenom: parts.slice(1).join(' '),
+          nom_complet: line
+        };
+      }
+    }
+    
+    // Pattern: Format avec virgule (ex: "Dupont, Jean")
+    const namePattern4 = line.match(/^([A-Za-zéèêëàâîïôöûüç-]+),\s*([A-Za-zéèêëàâîïôöûüç-]+)$/);
+    if (namePattern4) {
+      console.log('✅ Pattern 4 trouvé (Nom, Prénom):', line);
+      return {
+        nom: namePattern4[1],
+        prenom: namePattern4[2],
+        nom_complet: line
+      };
+    }
+  }
+  
+  // ============================================
+  // STRATÉGIE 2: Chercher des patterns dans tout le texte
+  // ============================================
+  
+  // Chercher "Prénom : Jean" ou "Nom : Dupont"
+  for (const line of lines.slice(0, 20)) {
+    const prenomMatch = line.match(/(?:Prénom|Prenom|First name)[\s:]*([A-Za-zéèêëàâîïôöûüç-]+)/i);
+    if (prenomMatch) {
+      console.log('✅ Champ "Prénom" trouvé:', prenomMatch[1]);
+      return {
+        prenom: prenomMatch[1],
+        nom: null,
+        nom_complet: prenomMatch[1]
+      };
+    }
+    
+    const nomMatch = line.match(/(?:Nom|Name|Last name)[\s:]*([A-Za-zéèêëàâîïôöûüç-]+)/i);
+    if (nomMatch) {
+      console.log('✅ Champ "Nom" trouvé:', nomMatch[1]);
+      return {
+        nom: nomMatch[1],
+        prenom: null,
+        nom_complet: nomMatch[1]
+      };
+    }
+  }
+  
+  // ============================================
+  // STRATÉGIE 3: Chercher dans les premières lignes des mots avec majuscules
+  // ============================================
+  for (let i = 0; i < Math.min(5, lines.length); i++) {
+    const line = lines[i];
+    
+    // Compter les mots avec majuscule initiale
+    const words = line.split(' ');
+    const capitalizedWords = words.filter(w => /^[A-Z][a-zéèêëàâîïôöûüç]+$/.test(w));
+    
+    // Si on a 2-3 mots avec majuscule, c'est probablement un nom
+    if (capitalizedWords.length >= 2 && capitalizedWords.length <= 3 && line.length < 50) {
+      console.log('✅ Ligne avec mots capitalisés trouvée:', line);
+      
+      if (capitalizedWords.length === 2) {
+        return {
+          prenom: capitalizedWords[0],
+          nom: capitalizedWords[1],
+          nom_complet: line
+        };
+      } else if (capitalizedWords.length === 3) {
+        return {
+          prenom: capitalizedWords[0] + ' ' + capitalizedWords[1],
+          nom: capitalizedWords[2],
+          nom_complet: line
+        };
+      }
+    }
+  }
+  
+  // ============================================
+  // STRATÉGIE 4: Dernier recours - prendre la première ligne non-vide
+  // ============================================
+  for (const line of lines) {
+    if (line.length > 3 && line.length < 50 && !line.includes('@') && !line.includes('http')) {
+      const words = line.split(' ');
+      if (words.length >= 2) {
+        console.log('⚠️ Dernier recours - première ligne significative:', line);
+        return {
+          prenom: words[0],
+          nom: words.slice(1).join(' '),
+          nom_complet: line
+        };
+      }
+    }
+  }
+  
+  console.log('⚠️ Aucun nom trouvé');
+  return { nom: null, prenom: null, nom_complet: null };
+}
+
+/**
+ * Extrait le texte brut du fichier
  */
 async function extractTextFromFile(fileBuffer, fileType) {
   try {
@@ -186,31 +209,6 @@ async function extractTextFromFile(fileBuffer, fileType) {
     console.error('Erreur extraction texte:', error);
     throw error;
   }
-}
-
-/**
- * Extrait le nom complet
- */
-function extractFullName(text) {
-  const lines = text.split('\n').filter(line => line.trim().length > 2);
-  
-  // Pattern 1: Nom en majuscules
-  for (const line of lines.slice(0, 5)) {
-    if (line === line.toUpperCase() && line.length > 5 && line.length < 40) {
-      return line.trim();
-    }
-  }
-  
-  // Pattern 2: Première ligne avec format "Prénom Nom"
-  const firstLine = lines[0];
-  if (firstLine && firstLine.split(' ').length >= 2) {
-    const words = firstLine.split(' ');
-    if (words.every(w => /^[A-Z][a-zéèêëàâîïôöûüç]+$/.test(w))) {
-      return firstLine;
-    }
-  }
-  
-  return null;
 }
 
 /**
@@ -251,31 +249,31 @@ function extractExperiences(text) {
     const line = lines[i].trim();
     if (!line) continue;
     
-    if (!inExpSection && /expérience|experience|employment|career/i.test(line)) {
+    if (!inExpSection && /expérience|experience|employment|career|parcours professionnel/i.test(line)) {
       inExpSection = true;
       continue;
     }
     
     if (!inExpSection) continue;
     
-    const dateMatch = line.match(/(\d{4})\s*[-–—]\s*(\d{4}|présent|now|current)/i);
+    const dateMatch = line.match(/(\d{4})\s*[-–—]\s*(\d{4}|présent|now|current|aujourd'hui)/i);
     if (dateMatch) {
       if (currentExp) experiences.push(currentExp);
       
       currentExp = {
-        poste: line,
+        poste: line.replace(dateMatch[0], '').trim() || 'Poste non spécifié',
         entreprise: null,
         date_debut: dateMatch[1],
-        date_fin: dateMatch[2],
+        date_fin: dateMatch[2].toLowerCase().match(/présent|now|current|aujourd'hui/i) ? 'présent' : dateMatch[2],
         description: []
       };
     } else if (currentExp) {
-      const companyMatch = line.match(/(?:chez|@|at)\s+([A-Z][A-Za-z0-9\s\-&]+)/i);
+      const companyMatch = line.match(/(?:chez|@|at|à)\s+([A-Z][A-Za-z0-9\s\-&]+)/i);
       if (companyMatch && !currentExp.entreprise) {
         currentExp.entreprise = companyMatch[1].trim();
       }
       
-      if (line.length > 10) {
+      if (line.length > 10 && currentExp.description.join(' ').length < 500) {
         currentExp.description.push(line);
       }
     }
@@ -286,7 +284,7 @@ function extractExperiences(text) {
 }
 
 /**
- * Extrait les formations (VERSION AMÉLIORÉE)
+ * Extrait les formations
  */
 function extractEducation(text) {
   const education = [];
@@ -334,7 +332,7 @@ function extractEducation(text) {
         annee: hasYear ? line.match(/\b(19|20)\d{2}\b/)[0] : null
       };
     } else if (currentEdu && !currentEdu.etablissement) {
-      const schoolKeywords = ['université', 'école', 'institut', 'campus', 'faculté'];
+      const schoolKeywords = ['université', 'école', 'institut', 'campus', 'faculté', 'polytechnique'];
       if (schoolKeywords.some(keyword => line.toLowerCase().includes(keyword))) {
         currentEdu.etablissement = line;
       }
@@ -349,15 +347,13 @@ function extractEducation(text) {
 }
 
 /**
- * Extrait le plus haut niveau d'étude (NOUVELLE FONCTION)
+ * Extrait le plus haut niveau d'étude
  */
 function extractHighestEducationLevel(text, formations) {
-  console.log('🔍 Recherche du niveau d\'étude...');
-  
   let highestLevel = null;
   let highestOrder = 0;
   
-  // 1. Chercher dans les formations extraites
+  // Chercher dans les formations
   if (formations && formations.length > 0) {
     for (const formation of formations) {
       const formationText = JSON.stringify(formation).toLowerCase();
@@ -376,7 +372,7 @@ function extractHighestEducationLevel(text, formations) {
     }
   }
   
-  // 2. Si rien trouvé, chercher dans tout le texte
+  // Chercher dans le texte
   if (!highestLevel) {
     const textLower = text.toLowerCase();
     const diplomasByOrder = Object.entries(FRENCH_DIPLOMAS)
@@ -395,7 +391,7 @@ function extractHighestEducationLevel(text, formations) {
     }
   }
   
-  // 3. Chercher les mentions "Bac+X"
+  // Chercher les mentions Bac+X
   if (!highestLevel) {
     const bacPlusRegex = /bac[+\s]*(\d+)/i;
     const match = text.match(bacPlusRegex);
@@ -409,7 +405,6 @@ function extractHighestEducationLevel(text, formations) {
     }
   }
   
-  console.log('🎓 Niveau d\'étude final:', highestLevel || 'Non spécifié');
   return highestLevel || 'Non spécifié';
 }
 
@@ -472,33 +467,35 @@ app.post('/api/analyze', async (req, res) => {
     // 2. Extraire le texte
     const rawText = await extractTextFromFile(fileBuffer, fileType);
     console.log('✅ Texte extrait, longueur:', rawText.length);
+    
+    // Afficher les premières lignes pour déboguer
+    console.log('📄 Premières lignes du CV:\n', rawText.split('\n').slice(0, 5).join('\n'));
 
-    // 3. Extraire TOUTES les informations dans le bon ordre
-    const fullName = extractFullName(rawText);
+    // 3. Extraire les informations
+    const nameInfo = extractNameFromCV(rawText);
+    console.log('👤 Nom extrait:', nameInfo);
+    
     const competences = extractSkills(rawText);
     const experiences = extractExperiences(rawText);
-    const formations = extractEducation(rawText);  // D'abord les formations
-    const niveau = extractHighestEducationLevel(rawText, formations);  // Ensuite le niveau (utilise formations)
+    const formations = extractEducation(rawText);
+    const niveau = extractHighestEducationLevel(rawText, formations);
     
     const emails = rawText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
     const phones = rawText.match(/(?:\+33|0)[1-9](?:[-.\s]?\d{2}){4}/g) || [];
     
     const annees_experience = calculateTotalExperience(experiences);
 
-    // Séparation nom/prénom
-    let nom = null, prenom = null;
-    if (fullName) {
-      const parts = fullName.split(' ');
-      prenom = parts[0];
-      nom = parts.slice(1).join(' ');
-    }
-
-    // Profil (premières lignes)
-    const profil = rawText.split('\n').slice(0, 3).join(' ').substring(0, 300);
+    // Profil (premières lignes significatives)
+    const profil = rawText.split('\n')
+      .filter(l => l.trim().length > 20)
+      .slice(0, 3)
+      .join(' ')
+      .substring(0, 500);
 
     console.log('📊 RÉSUMÉ EXTRACTION:', {
-      nom, prenom,
-      email: emails[0],
+      nom: nameInfo.nom,
+      prenom: nameInfo.prenom,
+      email: emails[0] || 'non trouvé',
       competences: competences.length,
       experiences: experiences.length,
       formations: formations.length,
@@ -511,9 +508,9 @@ app.post('/api/analyze', async (req, res) => {
       success: true,
       candidateInfo: {
         // Informations personnelles
-        nom: nom,
-        prenom: prenom,
-        nom_complet: fullName,
+        nom: nameInfo.nom,
+        prenom: nameInfo.prenom,
+        nom_complet: nameInfo.nom_complet,
         email: emails[0] || null,
         telephone: phones[0] || null,
         adresse: null,
@@ -532,7 +529,7 @@ app.post('/api/analyze', async (req, res) => {
         lien: null,
         
         // Niveau et expérience
-        niveau: niveau,  // Utilisation de la variable niveau calculée
+        niveau: niveau,
         annees_experience: annees_experience,
         
         // Métadonnées
@@ -545,6 +542,18 @@ app.post('/api/analyze', async (req, res) => {
         confidence_score: 0.85
       }
     };
+
+    // Dans la route POST /api/analyze
+const atsScore = calculateATSScore(response.candidateInfo, jobDescription);
+response.candidateInfo.ats_score = atsScore;
+
+if (atsScore < 75) {
+  response.success = false;
+  response.message = `Votre CV ne correspond pas suffisamment à l'offre (score : ${atsScore}%). Nous vous invitons à le modifier et à le renvoyer.`;
+  response.candidateInfo.statut = 'Rejeté (score < 75%)';
+} else {
+  response.candidateInfo.statut = 'Accepté';
+}
 
     console.log('✅ Analyse terminée avec succès');
     res.status(200).json(response);
@@ -566,6 +575,115 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
+
+/**
+ * Calcule le score de pertinence entre le CV et l'offre d'emploi.
+ * @param {Object} candidateInfo - Données extraites du CV.
+ * @param {string} jobDescription - Description de l'offre d'emploi.
+ * @returns {number} - Score entre 0 et 100.
+ */
+function calculateATSScore(candidateInfo, jobDescription) {
+  if (!jobDescription || !candidateInfo) return 0;
+
+
+
+  // 1. Extraire les compétences et mots-clés de l'offre d'emploi
+  const jobKeywords = extractKeywords(jobDescription);
+  const cvKeywords = candidateInfo.competences || [];
+
+  // 2. Calculer le score de correspondance des compétences (50% du score total)
+  const skillScore = calculateSkillMatchScore(cvKeywords, jobKeywords);
+
+  // 3. Calculer le score d'expérience (30% du score total)
+  const experienceScore = calculateExperienceScore(candidateInfo.experiences, jobDescription);
+
+  // 4. Calculer le score de niveau d'étude (20% du score total)
+  const educationScore = calculateEducationScore(candidateInfo.niveau, jobDescription);
+
+  // 5. Score total (pondéré)
+  const totalScore = (skillScore * 0.5) + (experienceScore * 0.3) + (educationScore * 0.2);
+
+  return Math.round(totalScore * 100); // Retourne un score entre 0 et 100
+}
+
+/**
+ * Extrait les mots-clés d'un texte (offre d'emploi ou CV).
+ */
+function extractKeywords(text) {
+  if (!text) return [];
+  const tokenizer = new natural.WordTokenizer();
+  const words = tokenizer.tokenize(text.toLowerCase());
+
+  // Filtrer les stopwords (mots vides comme "le", "la", "de", etc.)
+  const stopwords = new Set(natural.stopwords['fr']);
+  return words.filter(word => !stopwords.has(word) && word.length > 2);
+}
+
+/**
+ * Calcule le score de correspondance des compétences.
+ */
+function calculateSkillMatchScore(cvSkills, jobSkills) {
+  if (!cvSkills.length || !jobSkills.length) return 0;
+
+  const commonSkills = cvSkills.filter(skill =>
+    jobSkills.some(jobSkill => skill.includes(jobSkill) || jobSkill.includes(skill))
+  );
+
+  return commonSkills.length / jobSkills.length; // Ratio de compétences communes
+}
+
+/**
+ * Calcule le score d'expérience (ex : nombre d'années requises).
+ */
+function calculateExperienceScore(experiences, jobDescription) {
+  const requiredYears = extractRequiredYears(jobDescription);
+  if (!requiredYears) return 1; // Si pas d'exigence, score maximal
+
+  const totalExperience = experiences.reduce((sum, exp) => {
+    const startYear = parseInt(exp.date_debut);
+    const endYear = exp.date_fin === 'présent' ? new Date().getFullYear() : parseInt(exp.date_fin);
+    return sum + (endYear - startYear);
+  }, 0);
+
+  return Math.min(totalExperience / requiredYears, 1); // 1 = 100% de l'expérience requise
+}
+
+/**
+ * Extrait le nombre d'années d'expérience requises dans l'offre.
+ */
+function extractRequiredYears(jobDescription) {
+  const match = jobDescription.match(/(\d+)\s*ans?\s*d['’]?expérience/i);
+  return match ? parseInt(match[1]) : 2; // Par défaut : 2 ans si non spécifié
+}
+
+/**
+ * Calcule le score de niveau d'étude.
+ */
+function calculateEducationScore(candidateEducationLevel, jobDescription) {
+  const requiredLevel = extractRequiredEducationLevel(jobDescription);
+  if (!requiredLevel) return 1; // Si pas d'exigence, score maximal
+
+  const candidateLevel = DIPLOMES_HIERARCHIE.find(d => d.nom === candidateEducationLevel)?.niveau || 0;
+  const requiredLevelNum = DIPLOMES_HIERARCHIE.find(d => d.nom === requiredLevel)?.niveau || 0;
+
+  return candidateLevel >= requiredLevelNum ? 1 : 0.5; // 1 si niveau suffisant, 0.5 sinon
+}
+
+/**
+ * Extrait le niveau d'étude requis dans l'offre (ex : "Bac+5").
+ */
+function extractRequiredEducationLevel(jobDescription) {
+  const lowerText = jobDescription.toLowerCase();
+  for (const diploma of DIPLOMES_HIERARCHIE) {
+    for (const keyword of diploma.motsCles) {
+      if (lowerText.includes(keyword)) {
+        return diploma.nom;
+      }
+    }
+  }
+  return 'Bac+3'; // Par défaut : Bac+3 si non spécifié
+}
+
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
