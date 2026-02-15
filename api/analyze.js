@@ -344,9 +344,7 @@ app.post('/api/analyze', async (req, res) => {
     const linkedinUrls = cleanTextContent.match(PATTERNS.linkedin) || [];
 
     // 5. Extraire le nom
-    const fullName = extractName(cleanTextContent);
-    let nom = null;
-    let prenom = null;
+    const { prenom, nom } = extractName(cleanTextContent);
     
     if (fullName) {
       const nameParts = fullName.split(' ');
