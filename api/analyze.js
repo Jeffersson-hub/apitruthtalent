@@ -88,19 +88,25 @@ function calculateFileHash(buffer) {
  * Extrait le nom et prénom du texte
  */
 function extractName(text) {
-  // Chercher en début de document (souvent le nom est en haut)
   const lines = text.split('\n').filter(line => line.trim().length > 0);
-  
+  const namePattern = /^([A-Z][a-zéèêëàâîïôöûüç]+(?:\s+[A-Z][a-zéèêëàâîïôöûüç-]+){1,3})$/;
+
   for (const line of lines.slice(0, 5)) {
-    // Pattern: 2-3 mots avec majuscules
-    const nameMatch = line.match(/^([A-Z][a-zéèêëàâîïôöûüç]+(?:\s+[A-Z][a-zéèêëàâîïôöûüç-]+){1,2})$/);
+    const nameMatch = line.match(namePattern);
     if (nameMatch) {
-      return nameMatch[1];
+      const nameParts = nameMatch[1].split(' ');
+      if (nameParts.length >= 2) {
+        return {
+          prenom: nameParts[0],
+          nom: nameParts.slice(1).join(' ')
+        };
+      }
     }
   }
-  
-  return null;
+
+  return { prenom: null, nom: null };
 }
+
 
 /**
  * Extrait les sections du CV

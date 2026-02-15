@@ -1,5 +1,4 @@
 // resume-analyzer/extract-resume-text/index.mjs
-// modif extension
 import { analyzeResume } from './resume-analyzer.mjs'; // Assure-toi que le fichier existe et utilise aussi ES Modules
 import { createClient } from '@supabase/supabase-js';
 
