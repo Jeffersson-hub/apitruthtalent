@@ -7,6 +7,9 @@ import mammoth from 'mammoth';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import crypto from 'crypto';
+import natural from 'natural';
+import natural from 'natural';
+
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -206,8 +209,15 @@ async function extractTextFromFile(fileBuffer, fileType) {
       .trim();
       
   } catch (error) {
-    console.error('Erreur extraction texte:', error);
-    throw error;
+    console.error('❌ Erreur détaillée:', {
+        message: error.message,
+        stack: error.stack,
+        filePath: filePath
+    });
+    res.status(500).json({
+        error: 'Erreur interne lors de l\'analyse du CV',
+        details: error.message
+    });
   }
 }
 
@@ -444,7 +454,7 @@ app.post('/api/analyze', async (req, res) => {
     
     console.log('📥 Requête reçue:', { filePath });
 
-    if (!filePath) {
+    if (!filePath || !filePath.startsWith('cvs/')) {
       return res.status(400).json({ error: 'filePath requis' });
     }
 
