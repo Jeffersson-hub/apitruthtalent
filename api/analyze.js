@@ -8,7 +8,6 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 import crypto from 'crypto';
 import natural from 'natural';
-import natural from 'natural';
 
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
