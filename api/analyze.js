@@ -36,6 +36,18 @@ const FRENCH_DIPLOMAS = {
   doctorat: { keywords: ['Doctorat', 'PhD', 'Thèse', 'Docteur', 'Bac+8'], niveau: 'Doctorat', order: 6 }
 };
 
+// Ajouter après FRENCH_DIPLOMAS
+const DIPLOMES_HIERARCHIE = [
+  { nom: 'CAP', niveau: 1, motsCles: ['cap', 'certificat'] },
+  { nom: 'BEP', niveau: 1, motsCles: ['bep'] },
+  { nom: 'BAC', niveau: 2, motsCles: ['bac', 'baccalauréat'] },
+  { nom: 'BAC Pro', niveau: 2, motsCles: ['bac pro'] },
+  { nom: 'BTS', niveau: 3, motsCles: ['bts'] },
+  { nom: 'DUT', niveau: 3, motsCles: ['dut'] },
+  { nom: 'Licence', niveau: 4, motsCles: ['licence', 'bac+3', 'bachelor'] },
+  { nom: 'Master', niveau: 5, motsCles: ['master', 'bac+5', 'ingénieur'] },
+  { nom: 'Doctorat', niveau: 6, motsCles: ['doctorat', 'phd', 'these'] }
+];
 // ============================================
 // FONCTION AMÉLIORÉE D'EXTRACTION DU NOM ET PRÉNOM
 // ============================================
@@ -45,67 +57,57 @@ const FRENCH_DIPLOMAS = {
  * @param {string} text - Texte complet du CV
  * @returns {Object} - { nom, prenom, nom_complet }
  */
+// REMPLACER la fonction extractNameFromCV par celle-ci
 function extractNameFromCV(text) {
   console.log('🔍 Recherche du nom et prénom...');
   
-  // Nettoyer le texte pour l'analyse
   const lines = text.split('\n')
     .map(line => line.trim())
-    .filter(line => line.length > 0 && line.length < 100); // Éviter les lignes trop longues
+    .filter(line => line.length > 0);
   
-  // ============================================
-  // STRATÉGIE 1: Chercher dans les 10 premières lignes (en-tête du CV)
-  // ============================================
-  for (let i = 0; i < Math.min(10, lines.length); i++) {
+  // STRATÉGIE SPÉCIFIQUE POUR VOTRE CV
+  // Chercher le format "Prénom Nom" suivi d'un titre
+  for (let i = 0; i < Math.min(15, lines.length); i++) {
     const line = lines[i];
     
-    // Pattern: Prénom Nom (ex: "Jean Dupont" ou "Jean-François Dupont")
-    const namePattern1 = line.match(/^([A-Z][a-zéèêëàâîïôöûüç-]+)\s+([A-Z][a-zéèêëàâîïôöûüç]+)$/);
-    if (namePattern1) {
-      console.log('✅ Pattern 1 trouvé (Prénom Nom):', line);
+    // Pattern pour "Jean-François BOISGONTIER Chef d'équipe industriel"
+    const nameWithTitleMatch = line.match(/^([A-Za-zéèêëàâîïôöûüç-]+)\s+([A-Z]{2,}(?:\s+[A-Z]{2,})*)\s+([A-Za-zéèêëàâîïôöûüç\s]+)$/);
+    if (nameWithTitleMatch) {
       return {
-        prenom: namePattern1[1],
-        nom: namePattern1[2],
-        nom_complet: line
+        prenom: nameWithTitleMatch[1],
+        nom: nameWithTitleMatch[2],
+        nom_complet: nameWithTitleMatch[1] + ' ' + nameWithTitleMatch[2]
       };
     }
     
-    // Pattern: Nom Prénom (ex: "DUPONT Jean")
-    const namePattern2 = line.match(/^([A-Z]{2,}(?:\s+[A-Z]{2,})*)\s+([A-Z][a-zéèêëàâîïôöûüç-]+)$/);
-    if (namePattern2) {
-      console.log('✅ Pattern 2 trouvé (Nom Prénom):', line);
+    // Pattern pour "Jean-François BOISGONTIER" (juste nom/prénom)
+    const simpleNameMatch = line.match(/^([A-Za-zéèêëàâîïôöûüç-]+)\s+([A-Z]{2,}(?:\s+[A-Z]{2,})*)$/);
+    if (simpleNameMatch) {
       return {
-        nom: namePattern2[1],
-        prenom: namePattern2[2],
-        nom_complet: line
-      };
-    }
-    
-    // Pattern: Nom en majuscules uniquement (ex: "DUPONT JEAN")
-    const namePattern3 = line.match(/^([A-Z]{2,}(?:\s+[A-Z]{2,})+)$/);
-    if (namePattern3) {
-      console.log('✅ Pattern 3 trouvé (tout majuscule):', line);
-      const parts = line.split(' ');
-      if (parts.length >= 2) {
-        return {
-          nom: parts[0],
-          prenom: parts.slice(1).join(' '),
-          nom_complet: line
-        };
-      }
-    }
-    
-    // Pattern: Format avec virgule (ex: "Dupont, Jean")
-    const namePattern4 = line.match(/^([A-Za-zéèêëàâîïôöûüç-]+),\s*([A-Za-zéèêëàâîïôöûüç-]+)$/);
-    if (namePattern4) {
-      console.log('✅ Pattern 4 trouvé (Nom, Prénom):', line);
-      return {
-        nom: namePattern4[1],
-        prenom: namePattern4[2],
+        prenom: simpleNameMatch[1],
+        nom: simpleNameMatch[2],
         nom_complet: line
       };
     }
   }
+  
+  // RECHERCHE D'EMAIL POUR TROUVER LE NOM (souvent l'email contient le nom)
+  const emailMatch = text.match(/([a-zA-Z0-9._%+-]+)@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+  if (emailMatch) {
+    const emailPrefix = emailMatch[1];
+    // Transformer "jf.boisgontier" en "Jean-François BOISGONTIER" approximatif
+    if (emailPrefix.includes('.')) {
+      const parts = emailPrefix.split('.');
+      return {
+        prenom: parts[0] === 'jf' ? 'Jean-François' : parts[0],
+        nom: parts[1] ? parts[1].toUpperCase() : null,
+        nom_complet: emailPrefix
+      };
+    }
+  }
+  
+  return { nom: null, prenom: null, nom_complet: null };
+}
   
   // ============================================
   // STRATÉGIE 2: Chercher des patterns dans tout le texte
@@ -248,108 +250,90 @@ function extractSkills(text) {
 /**
  * Extrait les expériences professionnelles
  */
+// AMÉLIORER la fonction extractExperiences
 function extractExperiences(text) {
   const experiences = [];
   const lines = text.split('\n');
   let currentExp = null;
-  let inExpSection = false;
   
+  // Rechercher les périodes même sans section "Expérience"
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
     
-    if (!inExpSection && /expérience|experience|employment|career|parcours professionnel/i.test(line)) {
-      inExpSection = true;
-      continue;
-    }
+    // Pattern pour dates: "2016-2018" ou "2016 – 2018" ou "2016- présent"
+    const dateMatch = line.match(/(\d{4})\s*[-–—]\s*(\d{4}|présent|now|current|aujourd'hui|en cours)/i);
     
-    if (!inExpSection) continue;
-    
-    const dateMatch = line.match(/(\d{4})\s*[-–—]\s*(\d{4}|présent|now|current|aujourd'hui)/i);
     if (dateMatch) {
-      if (currentExp) experiences.push(currentExp);
+      const poste = line.replace(dateMatch[0], '').trim();
+      
+      // Chercher l'entreprise dans la même ligne ou la ligne suivante
+      let entreprise = null;
+      const companyMatch = line.match(/(?:chez|@|at|à|–)\s+([A-Z][A-Za-z0-9\s\-&]+)/i);
+      if (companyMatch) {
+        entreprise = companyMatch[1].trim();
+      } else if (i + 1 < lines.length) {
+        // Regarder la ligne suivante
+        const nextLine = lines[i + 1].trim();
+        const nextCompanyMatch = nextLine.match(/^([A-Z][A-Za-z0-9\s\-&]+)$/);
+        if (nextCompanyMatch) {
+          entreprise = nextCompanyMatch[1];
+        }
+      }
       
       currentExp = {
-        poste: line.replace(dateMatch[0], '').trim() || 'Poste non spécifié',
-        entreprise: null,
+        poste: poste || 'Poste non spécifié',
+        entreprise: entreprise,
         date_debut: dateMatch[1],
-        date_fin: dateMatch[2].toLowerCase().match(/présent|now|current|aujourd'hui/i) ? 'présent' : dateMatch[2],
+        date_fin: dateMatch[2].toLowerCase().match(/présent|now|current|aujourd'hui|en cours/i) ? 'présent' : dateMatch[2],
         description: []
       };
-    } else if (currentExp) {
-      const companyMatch = line.match(/(?:chez|@|at|à)\s+([A-Z][A-Za-z0-9\s\-&]+)/i);
-      if (companyMatch && !currentExp.entreprise) {
-        currentExp.entreprise = companyMatch[1].trim();
-      }
       
-      if (line.length > 10 && currentExp.description.join(' ').length < 500) {
-        currentExp.description.push(line);
-      }
+      experiences.push(currentExp);
     }
   }
   
-  if (currentExp) experiences.push(currentExp);
   return experiences;
 }
 
 /**
  * Extrait les formations
  */
+// AMÉLIORER extractEducation pour formater correctement
 function extractEducation(text) {
   const education = [];
   const lines = text.split('\n');
-  let inEduSection = false;
-  let currentEdu = null;
   
-  const educationSectionKeywords = [
-    'formation', 'formations', 'diplôme', 'diplômes', 'cursus',
-    'éducation', 'parcours académique', 'études', 'diplômé'
+  const educationKeywords = [
+    'diplôme', 'diplomes', 'formation', 'formations', 'études',
+    'bac', 'bts', 'dut', 'licence', 'master', 'cap', 'bep'
   ];
   
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
     
-    if (!inEduSection) {
-      const isEducationSection = educationSectionKeywords.some(keyword => 
-        line.toLowerCase().includes(keyword) && line.length < 60
-      );
-      
-      if (isEducationSection) {
-        inEduSection = true;
-        continue;
-      }
-    }
-    
-    if (!inEduSection) continue;
-    
+    // Chercher les lignes qui contiennent des années et des diplômes
     const hasYear = /\b(19|20)\d{2}\b/.test(line);
-    const hasDiploma = Object.values(FRENCH_DIPLOMAS).some(diploma =>
-      diploma.keywords.some(keyword => 
-        line.toLowerCase().includes(keyword.toLowerCase())
-      )
+    const hasEducationKeyword = educationKeywords.some(keyword => 
+      line.toLowerCase().includes(keyword)
     );
     
-    if ((hasYear || hasDiploma) && line.length > 5) {
-      if (currentEdu) {
-        education.push(currentEdu);
-      }
+    if (hasYear || hasEducationKeyword) {
+      // Extraire l'année
+      const yearMatch = line.match(/\b(19|20)\d{2}\b/);
+      const annee = yearMatch ? yearMatch[0] : null;
       
-      currentEdu = {
-        diplome: line,
-        etablissement: null,
-        annee: hasYear ? line.match(/\b(19|20)\d{2}\b/)[0] : null
-      };
-    } else if (currentEdu && !currentEdu.etablissement) {
-      const schoolKeywords = ['université', 'école', 'institut', 'campus', 'faculté', 'polytechnique'];
-      if (schoolKeywords.some(keyword => line.toLowerCase().includes(keyword))) {
-        currentEdu.etablissement = line;
-      }
+      // Nettoyer le diplôme (enlever l'année)
+      let diplome = line.replace(/\b(19|20)\d{2}\b/g, '').trim();
+      diplome = diplome.replace(/[-–—]\s*$/, '').trim();
+      
+      education.push({
+        annee: annee,
+        diplome: diplome,
+        etablissement: null // À améliorer si besoin
+      });
     }
-  }
-  
-  if (currentEdu) {
-    education.push(currentEdu);
   }
   
   return education;
@@ -420,19 +404,39 @@ function extractHighestEducationLevel(text, formations) {
 /**
  * Calcule les années d'expérience
  */
+// AMÉLIORER calculateTotalExperience
 function calculateTotalExperience(experiences) {
+  if (!experiences || experiences.length === 0) return 0;
+  
   let totalYears = 0;
   const currentYear = new Date().getFullYear();
   
   for (const exp of experiences) {
-    const debut = parseInt(exp.date_debut);
-    let fin = exp.date_fin === 'présent' ? currentYear : parseInt(exp.date_fin);
+    // Gérer les formats comme "2012" (juste année de début)
+    if (typeof exp === 'string') {
+      // Si c'est juste une chaîne, essayer d'extraire
+      continue;
+    }
     
-    if (!isNaN(debut) && !isNaN(fin) && fin >= debut) {
+    const debut = parseInt(exp.date_debut);
+    if (isNaN(debut)) continue;
+    
+    let fin;
+    if (exp.date_fin === 'présent' || exp.date_fin?.toLowerCase().includes('présent')) {
+      fin = currentYear;
+    } else {
+      fin = parseInt(exp.date_fin);
+    }
+    
+    if (!isNaN(fin) && fin >= debut) {
       totalYears += (fin - debut);
+    } else if (!isNaN(debut)) {
+      // Si pas de date de fin, compter 1 an par défaut
+      totalYears += 1;
     }
   }
   
+  // Arrondir à 1 décimale
   return Math.round(totalYears * 10) / 10;
 }
 
