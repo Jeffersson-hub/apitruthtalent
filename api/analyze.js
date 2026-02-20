@@ -1,44 +1,61 @@
-// /api/analyze.js
 import { createClient } from '@supabase/supabase-js';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
+import natural from 'natural';
+
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!supabaseUrl || !supabaseKey) {
-  throw new Error("❌ Variables d'environnement Supabase manquantes");
+  throw new Error("Variables d'environnement Supabase manquantes");
 }
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// ==================== CONFIGURATION ====================
-const CONFIG = {
-  MAX_FILE_SIZE: 10 * 1024 * 1024,
-  MIN_TEXT_LENGTH: 100,
-  ALLOWED_MIME_TYPES: [
-    'application/pdf',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-  ],
-  METIERS_DATABASE: [
-    { pattern: /ingénieur\s+(?:devops|système|réseau|logiciel|développement)/i, value: "Ingénieur DevOps" },
-    { pattern: /ingénieur\s+(?:informatique|logiciel|développement)/i, value: "Ingénieur Logiciel" },
-    { pattern: /développeur\s+(?:full[ -]stack|web|mobile|back[ -]end|front[ -]end)/i, value: "Développeur" },
-    { pattern: /data\s+(?:scientist|analyst|engineer)/i, value: "Data" },
-    { pattern: /chef\s+de\s+projet|project\s+manager/i, value: "Chef de Projet" },
-    { pattern: /product\s+(?:owner|manager)/i, value: "Product" },
-    { pattern: /charg[ée]\s+(?:de\s+)?recrutement|recruteur|sourcing/i, value: "Recruteur" },
-    { pattern: /charg[ée]\s+(?:des\s+)?ressources\s+humaines|charg[ée]\s+rh/i, value: "Chargé RH" },
-    { pattern: /assistant[ée]\s+rh/i, value: "Assistant RH" },
-    { pattern: /responsable\s+rh/i, value: "Responsable RH" },
-    { pattern: /commercial|charg[ée]\s+de\s+clientèle|conseiller\s+de\s+vente|vendeur|vendeuse/i, value: "Commercial" },
-    { pattern: /responsable\s+commercial/i, value: "Responsable Commercial" },
-    { pattern: /marketing|community\s+manager|charg[ée]\s+de\s+communication/i, value: "Marketing / Communication" },
-    { pattern: /administrateur\s+(?:système|réseau)/i, value: "Administrateur Système" },
-    { pattern: /technicien\s+(?:informatique|support|réseau)/i, value: "Technicien" },
-    { pattern: /support\s+(?:informatique|technique)/i, value: "Support Technique" }
-  ]
-};
+// ==================== LISTES DE DONNÉES ====================
+
+const SKILLS_DB = [
+  // Compétences techniques
+  "JavaScript", "TypeScript", "Python", "Java", "C#", "PHP", "Ruby", "Go", "React", "Angular", "Vue", "Node.js",
+  "SQL", "MySQL", "PostgreSQL", "MongoDB", "AWS", "Azure", "GCP", "Docker", "Kubernetes", "Git", "Linux",
+  // Compétences métiers
+  "Recrutement", "Sourcing", "ADP", "Paie", "CSE", "NAO", "Vente", "Prospection", "Négociation", "Relation client",
+  // Outils
+  "Canva", "WordPress", "Réseaux sociaux", "Excel", "PowerPoint", "Photoshop", "Illustrator", "Salesforce", "HubSpot"
+];
+
+const DIPLOMAS_DB = [
+  { name: "Bac", patterns: [/bac(?:calauréat)?/i] },
+  { name: "BTS", patterns: [/bts\b/i] },
+  { name: "DUT", patterns: [/dut\b/i] },
+  { name: "Licence", patterns: [/licence\b|bac\+3/i] },
+  { name: "Master", patterns: [/master\b|bac\+5/i] },
+  { name: "Ingénieur", patterns: [/ingénieur\b(?!.*junior)/i] },
+  { name: "Doctorat", patterns: [/doctorat\b|phd\b/i] },
+  { name: "CAP", patterns: [/cap\b(?!itale)/i] },
+  { name: "BEP", patterns: [/bep\b/i] },
+  { name: "BAFA", patterns: [/bafa\b/i] }
+];
+
+const JOB_TITLES_DB = [
+  { pattern: /ingénieur\s+(?:devops|système|réseau|logiciel|développement)/i, value: "Ingénieur DevOps" },
+  { pattern: /ingénieur\s+(?:informatique|logiciel|développement)/i, value: "Ingénieur Logiciel" },
+  { pattern: /développeur\s+(?:full[ -]stack|web|mobile|back[ -]end|front[ -]end)/i, value: "Développeur" },
+  { pattern: /data\s+(?:scientist|analyst|engineer)/i, value: "Data Scientist" },
+  { pattern: /chef\s+de\s+projet|project\s+manager/i, value: "Chef de Projet" },
+  { pattern: /product\s+(?:owner|manager)/i, value: "Product Manager" },
+  { pattern: /charg[ée]\s+(?:de\s+)?recrutement|recruteur|sourcing/i, value: "Recruteur" },
+  { pattern: /charg[ée]\s+(?:des\s+)?ressources\s+humaines|charg[ée]\s+rh/i, value: "Chargé RH" },
+  { pattern: /assistant[ée]\s+rh/i, value: "Assistant RH" },
+  { pattern: /responsable\s+rh/i, value: "Responsable RH" },
+  { pattern: /commercial|charg[ée]\s+de\s+clientèle|conseiller\s+de\s+vente|vendeur|vendeuse/i, value: "Commercial" },
+  { pattern: /responsable\s+commercial/i, value: "Responsable Commercial" },
+  { pattern: /marketing|community\s+manager|charg[ée]\s+de\s+communication/i, value: "Marketing / Communication" },
+  { pattern: /administrateur\s+(?:système|réseau)/i, value: "Administrateur Système" },
+  { pattern: /technicien\s+(?:informatique|support|réseau)/i, value: "Technicien" },
+  { pattern: /support\s+(?:informatique|technique)/i, value: "Support Technique" }
+];
 
 // ==================== FONCTIONS D'EXTRACTION ====================
 
@@ -74,8 +91,8 @@ function extractJobTitle(text) {
   for (const line of lines) {
     const cleanLine = line.trim().replace(/^#+\s*/, '').replace(/\*\*/g, '');
     if (cleanLine.length < 10 || cleanLine.length > 100) continue;
-    for (const metier of CONFIG.METIERS_DATABASE) {
-      if (metier.pattern.test(cleanLine)) return metier.value;
+    for (const job of JOB_TITLES_DB) {
+      if (job.pattern.test(cleanLine)) return job.value;
     }
   }
   return null;
@@ -94,21 +111,8 @@ function extractExperience(text) {
 }
 
 function extractDiplomas(text) {
-  const diplomas = [
-    { name: 'Bac', patterns: [/bac(?:calauréat)?/i] },
-    { name: 'BTS', patterns: [/bts\b/i] },
-    { name: 'DUT', patterns: [/dut\b/i] },
-    { name: 'Licence', patterns: [/licence\b|bac\+3/i] },
-    { name: 'Master', patterns: [/master\b|bac\+5/i] },
-    { name: 'Ingénieur', patterns: [/ingénieur\b(?!.*junior)/i] },
-    { name: 'Doctorat', patterns: [/doctorat\b|phd\b/i] },
-    { name: 'CAP', patterns: [/cap\b(?!itale)/i] },
-    { name: 'BEP', patterns: [/bep\b/i] },
-    { name: 'BAFA', patterns: [/bafa\b/i] }
-  ];
-
   const found = [];
-  diplomas.forEach(d => {
+  DIPLOMAS_DB.forEach(d => {
     d.patterns.forEach(p => {
       if (p.test(text)) found.push(d.name);
     });
@@ -124,19 +128,9 @@ function getExperienceLevel(years) {
 }
 
 function extractSkills(text) {
-  const commonSkills = [
-    'JavaScript', 'TypeScript', 'Python', 'Java', 'C#', 'PHP', 'Ruby', 'Go',
-    'React', 'Angular', 'Vue', 'Node.js', 'SQL', 'MySQL', 'PostgreSQL',
-    'AWS', 'Azure', 'GCP', 'Docker', 'Kubernetes', 'Git', 'Linux',
-    'Communication', 'Travail d\'équipe', 'Autonomie', 'Gestion du temps',
-    'Recrutement', 'Sourcing', 'ADP', 'Paie', 'CSE', 'NAO',
-    'Vente', 'Prospection', 'Négociation', 'Relation client',
-    'Canva', 'WordPress', 'Réseaux sociaux'
-  ];
-
   const found = [];
   const lowerText = text.toLowerCase();
-  commonSkills.forEach(skill => {
+  SKILLS_DB.forEach(skill => {
     if (lowerText.includes(skill.toLowerCase())) found.push(skill);
   });
 
