@@ -42,17 +42,17 @@ const CONFIG = {
 
 // ==================== FONCTIONS D'EXTRACTION ====================
 
-function extractName(text, fileName) {
-  const lines = text.split('\n').filter(l => l.trim().length > 0);
+function extractName(text) {
+  const lines = text.split('\n').filter(line => line.trim().length > 0);
   const ignoreWords = ['cv', 'curriculum', 'vitae', 'résumé', 'resume', 'page', 'contact', 'email', 'téléphone'];
-  
+
   for (const line of lines.slice(0, 20)) {
     const cleanLine = line.trim().replace(/^#+\s*/, '');
     if (cleanLine.length > 50 || ignoreWords.some(word => cleanLine.toLowerCase().includes(word))) continue;
-    
+
     const matchPrenomNom = cleanLine.match(/^([A-ZÀ-Ÿ][a-zà-ÿ'-]+(?:[- ][A-ZÀ-Ÿ][a-zà-ÿ'-]+)*)\s+([A-ZÀ-Ÿ]{2,}(?:[- ][A-ZÀ-Ÿ]{2,})*)$/);
     if (matchPrenomNom) return { prenom: matchPrenomNom[1].trim(), nom: matchPrenomNom[2].trim() };
-    
+
     const matchNomPrenom = cleanLine.match(/^([A-ZÀ-Ÿ]{2,}(?:[- ][A-ZÀ-Ÿ]{2,})*)\s+([A-ZÀ-Ÿ][a-zà-ÿ'-]+(?:[- ][A-ZÀ-Ÿ][a-zà-ÿ'-]+)*)$/);
     if (matchNomPrenom) return { prenom: matchNomPrenom[2].trim(), nom: matchNomPrenom[1].trim() };
   }
@@ -83,7 +83,7 @@ function extractJobTitle(text) {
 
 function extractExperience(text) {
   const patterns = [
-    /(\d+)\s*(?:ans?|années?)\s*d['']?expérience/i,
+    /(\d+)\s*(?:ans?|années?)\s*d['’]?expérience/i,
     /expérience\s*(?:de\s*)?(\d+)\s*(?:ans?|années?)/i
   ];
   for (const pattern of patterns) {
@@ -106,7 +106,7 @@ function extractDiplomas(text) {
     { name: 'BEP', patterns: [/bep\b/i] },
     { name: 'BAFA', patterns: [/bafa\b/i] }
   ];
-  
+
   const found = [];
   diplomas.forEach(d => {
     d.patterns.forEach(p => {
@@ -133,13 +133,62 @@ function extractSkills(text) {
     'Vente', 'Prospection', 'Négociation', 'Relation client',
     'Canva', 'WordPress', 'Réseaux sociaux'
   ];
-  
+
   const found = [];
   const lowerText = text.toLowerCase();
   commonSkills.forEach(skill => {
     if (lowerText.includes(skill.toLowerCase())) found.push(skill);
   });
-  return found;
+
+  // Extraction dynamique des compétences
+  const skillSections = ["Compétences", "Skills", "Expertise", "Logiciels", "PAO"];
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    if (skillSections.some(section => lines[i].includes(section))) {
+      for (let j = i + 1; j < lines.length; j++) {
+        if (lines[j].trim().length === 0 || lines[j].match(/^[A-Z][a-z]+:/)) break;
+        found.push(...lines[j].split(',').map(s => s.trim()));
+      }
+      break;
+    }
+  }
+
+  return [...new Set(found)];
+}
+
+function extractExperiences(text) {
+  const experienceSections = ["Expérience", "Expériences", "Parcours Professionnel", "EXPÉRIENCES PROFESSIONNELLES"];
+  const lines = text.split('\n');
+  let experiences = [];
+  let currentExperience = {};
+
+  for (let i = 0; i < lines.length; i++) {
+    if (experienceSections.some(section => lines[i].includes(section))) {
+      for (let j = i + 1; j < lines.length; j++) {
+        if (lines[j].trim().length === 0 || lines[j].match(/^[A-Z][a-z]+:/)) break;
+        if (lines[j].match(/\d{4}/)) {
+          if (Object.keys(currentExperience).length > 0) {
+            experiences.push(currentExperience);
+            currentExperience = {};
+          }
+          currentExperience.periode = lines[j].trim();
+        } else if (lines[j].trim().length > 0) {
+          if (!currentExperience.poste) {
+            currentExperience.poste = lines[j].trim();
+          } else if (!currentExperience.description) {
+            currentExperience.description = lines[j].trim();
+          } else {
+            currentExperience.description += " " + lines[j].trim();
+          }
+        }
+      }
+      if (Object.keys(currentExperience).length > 0) {
+        experiences.push(currentExperience);
+      }
+      break;
+    }
+  }
+  return experiences;
 }
 
 async function extractTextFromFile(fileBuffer, fileName) {
@@ -192,7 +241,7 @@ export default async function handler(req, res) {
     const text = await extractTextFromFile(fileBuffer, fileName);
 
     // Extraire les informations
-    const { prenom, nom } = extractName(text, fileName);
+    const { prenom, nom } = extractName(text);
     const email = extractEmail(text);
     const telephone = extractPhone(text);
     const metiers = extractJobTitle(text);
@@ -201,6 +250,7 @@ export default async function handler(req, res) {
     const niveau = diplomes.length > 0 ? diplomes[0] : null;
     const niveau_experience = getExperienceLevel(annees_experience);
     const competences = extractSkills(text);
+    const experiences = extractExperiences(text);
 
     const cvUrl = `${supabaseUrl}/storage/v1/object/public/truthtalent/${filePath}`;
 
@@ -216,6 +266,7 @@ export default async function handler(req, res) {
       niveau,
       annees_experience: annees_experience || 0,
       niveau_experience,
+      experiences,
       cv_url: cvUrl,
       cv_filename: fileName,
       fichier: filePath
@@ -230,9 +281,9 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error("❌ Erreur:", error);
-    return res.status(500).json({ 
-      success: false, 
-      error: error.message 
+    return res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 }
