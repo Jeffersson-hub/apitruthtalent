@@ -12,17 +12,10 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Configuration CORS
-// const corsHeaders = {
-//   'Access-Control-Allow-Origin': '*',
-//   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-//   'Access-Control-Allow-Headers': 'Content-Type',
-// };
-
 // ==================== CONFIGURATION ====================
 const CONFIG = {
   MAX_FILE_SIZE: 10 * 1024 * 1024, // 10 Mo
-  MIN_TEXT_LENGTH: 100, // Caractères minimum pour un CV valide
+  MIN_TEXT_LENGTH: 100,
   ALLOWED_MIME_TYPES: [
     'application/pdf',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
@@ -35,346 +28,191 @@ const CONFIG = {
     education: { weight: 10, pattern: /(?:bac|bts|licence|master|doctorat|diplôme|formation)/i }
   },
   SKILLS_DATABASE: {
-    technical: [
-      'JavaScript', 'TypeScript', 'Python', 'Java', 'C#', 'PHP', 'Ruby', 'Go',
-      'React', 'Angular', 'Vue', 'Node.js', 'Django', 'Spring',
-      'SQL', 'MySQL', 'PostgreSQL', 'MongoDB', 'Oracle',
-      'AWS', 'Azure', 'GCP', 'Docker', 'Kubernetes', 'Jenkins', 'GitLab',
-      'Linux', 'Bash', 'PowerShell', 'Ansible', 'Terraform'
-    ],
-    soft: [
-      'Communication', 'Travail d\'équipe', 'Autonomie', 'Adaptabilité',
-      'Résolution de problèmes', 'Gestion du temps', 'Créativité',
-      'Leadership', 'Négociation', 'Relation client'
-    ],
-    rh: [
-      'Recrutement', 'Sourcing', 'ADP', 'Paie', 'CSE', 'NAO',
-      'Administration du personnel', 'Droit du travail', 'Formation'
-    ],
-    commercial: [
-      'Vente', 'Prospection', 'Négociation commerciale', 'Relation client',
-      'Développement commercial', 'Fidélisation'
-    ],
-    communication: [
-      'Canva', 'Photoshop', 'WordPress', 'Hootsuite', 'Réseaux sociaux',
-      'Community management', 'Content creation'
-    ]
-  }
+    technical: [ ... ], // inchangé
+    soft: [ ... ],
+    rh: [ ... ],
+    commercial: [ ... ],
+    communication: [ ... ]
+  },
+  // NOUVEAU: Base de données des métiers
+  METIERS_DATABASE: [
+    { pattern: /ingénieur\s+(?:devops|système|réseau|logiciel|développement)/i, value: "Ingénieur DevOps" },
+    { pattern: /ingénieur\s+(?:informatique|logiciel|développement)/i, value: "Ingénieur Logiciel" },
+    { pattern: /développeur\s+(?:full[ -]stack|web|mobile|back[ -]end|front[ -]end)/i, value: "Développeur" },
+    { pattern: /data\s+(?:scientist|analyst|engineer)/i, value: "Data" },
+    { pattern: /chef\s+de\s+projet|project\s+manager/i, value: "Chef de Projet" },
+    { pattern: /product\s+(?:owner|manager)/i, value: "Product" },
+    { pattern: /charg[ée]\s+(?:de\s+)?recrutement|recruteur|sourcing/i, value: "Recruteur" },
+    { pattern: /charg[ée]\s+(?:des\s+)?ressources\s+humaines|charg[ée]\s+rh/i, value: "Chargé RH" },
+    { pattern: /assistant[ée]\s+(?:des\s+)?ressources\s+humaines|assistant[ée]\s+rh/i, value: "Assistant RH" },
+    { pattern: /responsable\s+(?:des\s+)?ressources\s+humaines|responsable\s+rh/i, value: "Responsable RH" },
+    { pattern: /commercial|charg[ée]\s+de\s+clientèle|conseiller\s+de\s+vente|vendeur|vendeuse/i, value: "Commercial" },
+    { pattern: /responsable\s+commercial|responsable\s+des\s+ventes/i, value: "Responsable Commercial" },
+    { pattern: /marketing|community\s+manager|charg[ée]\s+de\s+communication/i, value: "Marketing / Communication" },
+    { pattern: /administrateur\s+(?:système|réseau|bases\s+de\s+données)/i, value: "Administrateur Système" },
+    { pattern: /technicien\s+(?:informatique|support|réseau)/i, value: "Technicien" },
+    { pattern: /support\s+(?:informatique|technique)/i, value: "Support Technique" }
+  ]
 };
 
-// ==================== NIVEAU 1: VALIDATION TECHNIQUE ====================
+// ==================== FONCTIONS D'EXTRACTION ====================
+
+// ... (gardez validateFileFormat, extractAndValidateContent, calculateATSScore, analyzeStructure, extractSkillsWithCategories, generateRecommendations inchangés) ...
 
 /**
- * Valide le format et la taille du fichier
+ * NOUVELLE FONCTION: Extrait le métier du candidat
  */
-function validateFileFormat(file, fileName) {
-  const errors = [];
+function extractJobTitle(text) {
+  const lines = text.split('\n').slice(0, 30); // Chercher dans les 30 premières lignes
   
-  // Vérifier le type MIME
-  if (!CONFIG.ALLOWED_MIME_TYPES.includes(file.type)) {
-    errors.push(`Format non accepté: ${file.type || 'inconnu'}. Utilisez PDF ou DOCX.`);
-  }
-  
-  // Vérifier la taille
-  if (file.size > CONFIG.MAX_FILE_SIZE) {
-    errors.push(`Fichier trop volumineux: ${(file.size / 1024 / 1024).toFixed(2)} Mo (max ${CONFIG.MAX_FILE_SIZE / 1024 / 1024} Mo)`);
-  }
-  
-  // Vérifier l'extension
-  const ext = fileName.split('.').pop().toLowerCase();
-  if (!['pdf', 'docx'].includes(ext)) {
-    errors.push(`Extension non supportée: .${ext}`);
-  }
-  
-  return errors;
-}
-
-// ==================== NIVEAU 2: VALIDATION DE CONTENU ====================
-
-/**
- * Extrait le texte et vérifie sa lisibilité
- */
-async function extractAndValidateContent(fileBuffer, fileName) {
-  const fileType = fileName.split('.').pop().toLowerCase();
-  
-  try {
-    let text = '';
+  // 1. Chercher un titre explicite (# Titre, ## Titre, ou ligne en gras)
+  for (const line of lines) {
+    const cleanLine = line.trim().replace(/^#+\s*/, '').replace(/\*\*/g, '');
     
-    if (fileType === 'pdf') {
-      const data = await pdfParse(Buffer.from(fileBuffer));
-      text = data.text;
-    } else if (fileType === 'docx') {
-      const { value } = await mammoth.extractRawText({ buffer: Buffer.from(fileBuffer) });
-      text = value;
-    }
+    // Ignorer les lignes trop longues ou trop courtes
+    if (cleanLine.length < 10 || cleanLine.length > 100) continue;
     
-    // Nettoyer le texte pour l'analyse
-    const cleanText = text
-      .replace(/[^\x20-\x7E\u00A0-\u00FF\u0152\u0153\u0160\u0161\u017D\u017E\u2018\u2019\u201C\u201D\u2026]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    
-    // Vérifier la longueur minimale
-    if (cleanText.length < CONFIG.MIN_TEXT_LENGTH) {
-      throw new Error(`Texte insuffisant: ${cleanText.length} caractères (minimum ${CONFIG.MIN_TEXT_LENGTH})`);
-    }
-    
-    // Détecter les CV scannés (trop de caractères spéciaux)
-    const specialChars = (cleanText.match(/[^a-zA-Z0-9\sàâäéèêëïîôöùûüçÀÂÄÉÈÊËÏÎÔÖÙÛÜÇ.,;:!?()-]/g) || []).length;
-    const specialCharRatio = specialChars / cleanText.length;
-    
-    if (specialCharRatio > 0.3) { // Plus de 30% de caractères spéciaux = probablement scanné
-      throw new Error("CV scanné non lisible (texte non extractible). Utilisez un CV textuel.");
-    }
-    
-    return { valid: true, text: cleanText };
-    
-  } catch (error) {
-    throw new Error(`Erreur d'extraction: ${error.message}`);
-  }
-}
-
-// ==================== NIVEAU 3: VALIDATION SÉMANTIQUE ====================
-
-/**
- * Calcule un score ATS basé sur la présence d'informations essentielles
- */
-function calculateATSScore(text) {
-  const results = {};
-  let totalScore = 0;
-  
-  for (const [field, config] of Object.entries(CONFIG.REQUIRED_FIELDS)) {
-    const found = config.pattern.test(text);
-    results[field] = {
-      found,
-      weight: config.weight,
-      score: found ? config.weight : 0
-    };
-    totalScore += results[field].score;
-  }
-  
-  return {
-    total: totalScore,
-    maxPossible: Object.values(CONFIG.REQUIRED_FIELDS).reduce((sum, f) => sum + f.weight, 0),
-    details: results,
-    isPassing: totalScore >= 60 // Seuil à 60% pour être considéré valide
-  };
-}
-
-/**
- * Analyse la structure du CV (présence de sections clés)
- */
-function analyzeStructure(text) {
-  const sections = {
-    experience: /expériences?\s+professionnelles?/i.test(text),
-    formation: /formation|diplôme|éducation/i.test(text),
-    competences: /compétences|skills/i.test(text),
-    contact: /@|tél|mobile|📞|📧/.test(text)
-  };
-  
-  const sectionCount = Object.values(sections).filter(Boolean).length;
-  
-  return {
-    sections,
-    quality: sectionCount >= 3 ? 'good' : sectionCount >= 2 ? 'average' : 'poor'
-  };
-}
-
-/**
- * Extrait les compétences avec catégorisation
- */
-function extractSkillsWithCategories(text) {
-  const lowerText = text.toLowerCase();
-  const skills = {
-    technical: [],
-    soft: [],
-    rh: [],
-    commercial: [],
-    communication: []
-  };
-  
-  // Détecter le contexte pour éviter les faux positifs
-  const context = {
-    isTechnical: /\b(ingénieur|développeur|devops|sysops|infrastructure|programmation|code)\b/i.test(lowerText),
-    isRH: /\b(rh|ressources humaines|recrutement|paie|administration du personnel)\b/i.test(lowerText),
-    isCommercial: /\b(vente|commercial|client|prospection|négociation)\b/i.test(lowerText),
-    isCommunication: /\b(communication|réseaux sociaux|marketing|community)\b/i.test(lowerText)
-  };
-  
-  Object.entries(CONFIG.SKILLS_DATABASE).forEach(([category, skillList]) => {
-    skillList.forEach(skill => {
-      const skillLower = skill.toLowerCase();
-      // Vérifier si le skill est présent comme mot entier
-      const regex = new RegExp(`\\b${skillLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-      
-      if (regex.test(lowerText)) {
-        // Filtrer selon le contexte
-        if (category === 'technical' && !context.isTechnical && !context.isCommercial) return;
-        if (category === 'rh' && !context.isRH) return;
-        if (category === 'commercial' && !context.isCommercial && !context.isRH) return;
-        if (category === 'communication' && !context.isCommunication) return;
-        
-        skills[category].push(skill);
+    // Chercher dans la base des métiers
+    for (const metier of CONFIG.METIERS_DATABASE) {
+      if (metier.pattern.test(cleanLine)) {
+        return metier.value;
       }
-    });
-  });
-  
-  return skills;
-}
-
-/**
- * Génère des recommandations d'amélioration
- */
-function generateRecommendations(text, atsScore, structure) {
-  const recommendations = [];
-  
-  if (atsScore.details.email.score === 0) {
-    recommendations.push("Ajoutez votre email (format professionnel de préférence)");
-  }
-  
-  if (atsScore.details.phone.score === 0) {
-    recommendations.push("Ajoutez votre numéro de téléphone au format français");
-  }
-  
-  if (atsScore.details.name.score === 0) {
-    recommendations.push("Votre nom et prénom doivent être clairement visibles en haut du CV");
-  }
-  
-  if (!structure.sections.experience) {
-    recommendations.push("Ajoutez une section 'Expériences professionnelles'");
-  }
-  
-  if (!structure.sections.formation) {
-    recommendations.push("Ajoutez une section 'Formation' ou 'Diplômes'");
-  }
-  
-  if (!structure.sections.competences) {
-    recommendations.push("Ajoutez une section 'Compétences' pour mieux cibler les offres");
-  }
-  
-  if (text.length < 500) {
-    recommendations.push("Votre CV est trop court. Développez vos expériences et compétences.");
-  }
-  
-  if (text.split('\n').filter(l => l.trim().length > 0).length < 20) {
-    recommendations.push("Votre CV manque de détails. Ajoutez des descriptions pour chaque poste.");
-  }
-  
-  return recommendations;
-}
-
-// ==================== FONCTIONS D'EXTRACTION PRINCIPALES ====================
-
-function extractName(text, fileName) {
-  const lines = text.split('\n').filter(l => l.trim().length > 0);
-  const ignoreWords = ['cv', 'curriculum', 'vitae', 'résumé', 'resume', 'page', 'contact', 'email', 'téléphone', 'adresse'];
-  
-  for (const line of lines.slice(0, 20)) {
-    const cleanLine = line.trim().replace(/^#+\s*/, '');
-    
-    if (cleanLine.length > 50 || ignoreWords.some(word => cleanLine.toLowerCase().includes(word))) {
-      continue;
-    }
-    
-    // Pattern: Prénom Nom
-    const matchPrenomNom = cleanLine.match(/^([A-ZÀ-Ÿ][a-zà-ÿ'-]+(?:[- ][A-ZÀ-Ÿ][a-zà-ÿ'-]+)*)\s+([A-ZÀ-Ÿ]{2,}(?:[- ][A-ZÀ-Ÿ]{2,})*)$/);
-    if (matchPrenomNom && !matchPrenomNom[1].includes(',')) {
-      return { prenom: matchPrenomNom[1].trim(), nom: matchPrenomNom[2].trim() };
-    }
-    
-    // Pattern: NOM Prénom
-    const matchNomPrenom = cleanLine.match(/^([A-ZÀ-Ÿ]{2,}(?:[- ][A-ZÀ-Ÿ]{2,})*)\s+([A-ZÀ-Ÿ][a-zà-ÿ'-]+(?:[- ][A-ZÀ-Ÿ][a-zà-ÿ'-]+)*)$/);
-    if (matchNomPrenom && !matchNomPrenom[1].includes(',')) {
-      return { prenom: matchNomPrenom[2].trim(), nom: matchNomPrenom[1].trim() };
     }
   }
   
-  // Fallback sur nom de fichier
-  const fileNameWithoutExt = fileName.replace(/\.[^/.]+$/, "");
-  const cleanFileName = fileNameWithoutExt
-    .replace(/CV[_-]?/gi, '')
-    .replace(/[_-]/g, ' ')
-    .replace(/\d+/g, '')
-    .replace(/fr|vendeuse|poste|stage|alternance|cdi|cdd/gi, '')
-    .trim();
-  
-  const nameParts = cleanFileName.split(' ').filter(p => p.length > 2);
-  
-  if (nameParts.length >= 2) {
-    if (nameParts[0] === nameParts[0].toUpperCase()) {
-      return { nom: nameParts[0], prenom: nameParts.slice(1).join(' ') };
-    } else if (nameParts[nameParts.length-1] === nameParts[nameParts.length-1].toUpperCase()) {
-      return { prenom: nameParts.slice(0, -1).join(' '), nom: nameParts[nameParts.length-1] };
-    } else {
-      return { prenom: nameParts[0], nom: nameParts.slice(1).join(' ') };
+  // 2. Chercher dans le résumé/profil
+  const summarySection = text.match(/(?:profil|résumé|summary|about)[:\s]+([^\n]+)/i);
+  if (summarySection) {
+    const summary = summarySection[1];
+    for (const metier of CONFIG.METIERS_DATABASE) {
+      if (metier.pattern.test(summary)) {
+        return metier.value;
+      }
     }
   }
   
-  return { prenom: null, nom: null };
-}
-
-function extractEmail(text) {
-  const emails = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g);
-  if (emails) {
-    return emails.find(e => !e.includes('example') && !e.includes('test')) || emails[0];
+  // 3. Chercher dans les premières expériences
+  const experienceMatch = text.match(/expériences?\s+professionnelles?[:\s]+([^\n]+(?:\n[^\n]+){0,2})/i);
+  if (experienceMatch) {
+    const expText = experienceMatch[1];
+    for (const metier of CONFIG.METIERS_DATABASE) {
+      if (metier.pattern.test(expText)) {
+        return metier.value;
+      }
+    }
   }
+  
   return null;
 }
 
-function extractPhone(text) {
-  const phones = text.match(/(?:(?:\+|00)33|0)[1-9](?:[\s.-]?\d{2}){4}/g);
-  return phones ? phones[0].replace(/[\s.-]/g, '') : null;
-}
-
+/**
+ * FONCTION AMÉLIORÉE: Extrait les années d'expérience avec plus de précision
+ */
 function extractExperience(text) {
-  const patterns = [
+  // Méthode 1: Pattern direct "X ans d'expérience"
+  const directPatterns = [
     /(\d+)\s*(?:ans?|années?)\s*d['']?expérience/i,
     /expérience\s*(?:de\s*)?(\d+)\s*(?:ans?|années?)/i,
+    /(\d+)[\+]\s*(?:ans?|années?)/i
   ];
   
-  for (const pattern of patterns) {
+  for (const pattern of directPatterns) {
     const match = text.match(pattern);
     if (match) return parseInt(match[1]);
   }
   
+  // Méthode 2: Compter les expériences par dates
   const experienceSection = text.match(/expériences?\s+professionnelles?/i);
   if (experienceSection) {
-    const afterSection = text.substring(experienceSection.index);
-    const lines = afterSection.split('\n').slice(0, 50);
-    let count = 0;
+    const afterSection = text.substring(experienceSection.index).split('\n').slice(0, 100);
+    let totalYears = 0;
+    let experienceCount = 0;
     
-    for (const line of lines) {
-      if (line.match(/\d{4}\s*[-–—]\s*(?:\d{4}|aujourd'hui|maintenant)/i)) count++;
-      if (line.match(/formations?\s*:/i)) break;
+    // Patterns de dates: "2019 - 2022", "2020-2023", "2021 à aujourd'hui"
+    const datePattern = /(\d{4})\s*[-–—]\s*(?:(\d{4})|aujourd'hui|maintenant|à ce jour|present)/i;
+    
+    for (const line of afterSection) {
+      const match = line.match(datePattern);
+      if (match) {
+        const startYear = parseInt(match[1]);
+        const endYear = match[2] ? parseInt(match[2]) : new Date().getFullYear();
+        const years = endYear - startYear;
+        if (years > 0 && years < 15) { // Éviter les anomalies
+          totalYears += years;
+          experienceCount++;
+        }
+      }
+      
+      // Sortir si on arrive à la section formation
+      if (line.match(/formations?\s*:/i) && experienceCount > 0) break;
     }
-    return count > 0 ? count : null;
+    
+    if (experienceCount > 0) {
+      // Retourner le total ou la moyenne selon le cas
+      return Math.round(totalYears);
+    }
+  }
+  
+  // Méthode 3: Extraction depuis le texte de l'expérience
+  const yearMatches = text.matchAll(/(\d{4})\s*[-–—]\s*(\d{4})/g);
+  let totalFromRanges = 0;
+  let rangeCount = 0;
+  
+  for (const match of yearMatches) {
+    const start = parseInt(match[1]);
+    const end = parseInt(match[2]);
+    if (start > 1900 && end > 1900 && end > start && (end - start) < 15) {
+      totalFromRanges += (end - start);
+      rangeCount++;
+    }
+  }
+  
+  if (rangeCount > 0) {
+    return Math.round(totalFromRanges);
   }
   
   return null;
 }
 
+/**
+ * NOUVELLE FONCTION: Détermine le niveau d'expérience (junior/confirmé/senior)
+ */
+function getExperienceLevel(years) {
+  if (!years || years < 0) return "junior";
+  if (years < 3) return "junior";
+  if (years < 7) return "confirmé";
+  return "senior";
+}
+
+/**
+ * FONCTION AMÉLIORÉE: Extrait le diplôme le plus élevé
+ */
 function extractDiplomas(text) {
   const diplomas = [
-    { name: 'Bac', patterns: [/bac(?:calauréat)?(?:\s+pro)?/i] },
-    { name: 'BTS', patterns: [/bts\b/i] },
-    { name: 'DUT', patterns: [/dut\b/i] },
-    { name: 'Licence', patterns: [/licence\b|bac\+3/i] },
-    { name: 'Master', patterns: [/master\b|bac\+5/i] },
-    { name: 'Doctorat', patterns: [/doctorat\b|phd\b/i] },
-    { name: 'Ingénieur', patterns: [/ingénieur\b(?!.*junior)/i] },
-    { name: 'CAP', patterns: [/cap\b(?!itale)/i] },
-    { name: 'BEP', patterns: [/bep\b/i] },
-    { name: 'BAFA', patterns: [/bafa\b/i] }
+    { name: 'Bac', level: 1, patterns: [/bac(?:calauréat)?(?:\s+pro)?/i] },
+    { name: 'BTS', level: 2, patterns: [/bts\b/i] },
+    { name: 'DUT', level: 2, patterns: [/dut\b/i] },
+    { name: 'Licence', level: 3, patterns: [/licence\b|bac\+3/i] },
+    { name: 'Master', level: 4, patterns: [/master\b|bac\+5/i] },
+    { name: 'Ingénieur', level: 4, patterns: [/ingénieur\b(?!.*junior)/i] },
+    { name: 'Doctorat', level: 5, patterns: [/doctorat\b|phd\b/i] },
+    { name: 'CAP', level: 1, patterns: [/cap\b(?!itale)/i] },
+    { name: 'BEP', level: 1, patterns: [/bep\b/i] },
+    { name: 'BAFA', level: 1, patterns: [/bafa\b/i] }
   ];
   
-  const found = new Set();
+  const found = [];
   diplomas.forEach(d => {
     d.patterns.forEach(p => {
-      if (p.test(text)) found.add(d.name);
+      if (p.test(text)) {
+        found.push({ name: d.name, level: d.level });
+      }
     });
   });
   
-  return Array.from(found);
+  // Trier par niveau et retourner les noms
+  found.sort((a, b) => b.level - a.level);
+  return found.map(d => d.name);
 }
 
 // ==================== ROUTE PRINCIPALE ====================
@@ -395,31 +233,24 @@ export default async function handler(req, res) {
     const { filePath } = req.body;
     
     if (!filePath) {
-      return res.status(400).json({ 
-        success: false, 
-        error: "filePath est requis" 
-      });
+      return res.status(400).json({ success: false, error: "filePath est requis" });
     }
 
     console.log(`📥 Analyse avec validation: ${filePath}`);
 
-    // ===== ÉTAPE 1: Téléchargement =====
+    // ===== Téléchargement =====
     const { data: file, error: downloadError } = await supabase.storage
       .from('truthtalent')
       .download(filePath);
 
     if (downloadError || !file) {
-      return res.status(404).json({ 
-        success: false, 
-        error: "Fichier introuvable",
-        details: downloadError?.message 
-      });
+      return res.status(404).json({ success: false, error: "Fichier introuvable" });
     }
 
     const fileBuffer = await file.arrayBuffer();
     const fileName = filePath.split('/').pop();
 
-    // ===== ÉTAPE 2: Validation technique (Niveau 1) =====
+    // ===== Validation technique =====
     const formatErrors = validateFileFormat(file, fileName);
     if (formatErrors.length > 0) {
       return res.status(400).json({
@@ -430,7 +261,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // ===== ÉTAPE 3: Validation de contenu (Niveau 2) =====
+    // ===== Validation de contenu =====
     let text;
     try {
       const validation = await extractAndValidateContent(fileBuffer, fileName);
@@ -444,33 +275,44 @@ export default async function handler(req, res) {
       });
     }
 
-    // ===== ÉTAPE 4: Validation sémantique (Niveau 3) =====
+    // ===== Validation sémantique =====
     const structure = analyzeStructure(text);
     const atsScore = calculateATSScore(text);
     const recommendations = generateRecommendations(text, atsScore, structure);
     const skills = extractSkillsWithCategories(text);
 
-    // ===== ÉTAPE 5: Extraction des informations =====
+    // ===== EXTRACTION AMÉLIORÉE =====
     const { prenom, nom } = extractName(text, fileName);
     const email = extractEmail(text);
     const telephone = extractPhone(text);
-    const diplomes = extractDiplomas(text);
+    
+    // ✅ Nouvelle extraction du métier
+    const metiers = extractJobTitle(text);
+    
+    // ✅ Nouvelle extraction de l'expérience (plus précise)
     const annees_experience = extractExperience(text);
     
-    const niveau = diplomes.length > 0 ? diplomes[diplomes.length - 1] : null;
+    // ✅ Niveau d'expérience (junior/confirmé/senior)
+    const niveau_experience = getExperienceLevel(annees_experience);
+    
+    // ✅ Diplômes (avec niveau)
+    const diplomes = extractDiplomas(text);
+    const niveau = diplomes.length > 0 ? diplomes[0] : null;
 
     const cvUrl = `${supabaseUrl}/storage/v1/object/public/truthtalent/${filePath}`;
 
-    // ===== ÉTAPE 6: Construction de la réponse =====
+    // ===== Construction de la réponse =====
     const candidateInfo = {
       nom: nom || null,
       prenom: prenom || null,
       email: email || null,
       telephone: telephone || null,
+      metiers: metiers,  // ← NOUVEAU
       competences: [...skills.technical, ...skills.soft, ...skills.rh, ...skills.commercial, ...skills.communication],
       diplomes: diplomes,
       niveau: niveau,
-      annees_experience: annees_experience,
+      annees_experience: annees_experience || 0,
+      niveau_experience: niveau_experience,  // ← NOUVEAU
       cv_url: cvUrl,
       cv_filename: fileName,
       fichier: filePath
@@ -485,9 +327,14 @@ export default async function handler(req, res) {
       skills: skills
     };
 
-    console.log("✅ Analyse terminée:", { candidateInfo, validation });
+    console.log("✅ Analyse terminée:", { 
+      nom, prenom, 
+      metiers, 
+      annees_experience, 
+      niveau_experience,
+      niveau 
+    });
 
-    // Si le score ATS est trop bas, on retourne quand même mais avec un avertissement
     const response = {
       success: true,
       candidateInfo,
@@ -499,9 +346,6 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error("❌ Erreur:", error);
-    return res.status(500).json({ 
-      success: false, 
-      error: error.message 
-    });
+    return res.status(500).json({ success: false, error: error.message });
   }
 }
