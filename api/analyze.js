@@ -87,21 +87,58 @@ function extractName(text) {
     /([A-Z]{2,})\s+([A-Z][a-zéèêëàâîïôöûüç-]+)/, // NOM Prénom
   ];
   
-  for (const line of lines.slice(0, 10)) { // Chercher dans les 10 premières lignes
+  for (const line of lines.slice(0, 10)) {
     for (const pattern of namePatterns) {
       const match = line.match(pattern);
-      if (match) {
-        // Déterminer quel groupe est le prénom et lequel est le nom
-        if (match[1].length > 2 && match[2].length > 2) {
-          return { 
-            prenom: match[1].charAt(0) + match[1].slice(1).toLowerCase(), 
-            nom: match[2].charAt(0) + match[2].slice(1).toLowerCase() 
-          };
-        }
+      if (match && match[1] && match[2]) {
+        return {
+          prenom: match[1].trim(),
+          nom: match[2].trim()
+        };
       }
     }
   }
   return { prenom: null, nom: null };
+}
+
+// Extraction des compétences dynamiques
+function extractDynamicSkills(text) {
+  const skillSections = ["Compétences", "Skills", "Expertise"];
+  const lines = text.split('\n');
+  let foundSkills = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    if (skillSections.some(section => lines[i].includes(section))) {
+      for (let j = i + 1; j < lines.length; j++) {
+        if (lines[j].trim().length === 0 || lines[j].match(/^[A-Z][a-z]+:/)) {
+          break;
+        }
+        foundSkills.push(...lines[j].split(',').map(s => s.trim()));
+      }
+      break;
+    }
+  }
+  return [...new Set(foundSkills)];
+}
+
+// Extraction des diplômes dynamiques
+function extractDynamicDiplomas(text) {
+  const diplomaSections = ["Formations", "Diplômes", "Éducation"];
+  const lines = text.split('\n');
+  let foundDiplomas = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    if (diplomaSections.some(section => lines[i].includes(section))) {
+      for (let j = i + 1; j < lines.length; j++) {
+        if (lines[j].trim().length === 0 || lines[j].match(/^[A-Z][a-z]+:/)) {
+          break;
+        }
+        foundDiplomas.push(lines[j].trim());
+      }
+      break;
+    }
+  }
+  return foundDiplomas;
 }
 
 // Fonction pour extraire les compétences
@@ -132,6 +169,46 @@ function extractDiplomas(text) {
   });
   
   return [...new Set(foundDiplomas)];
+}
+
+function extractDynamicSkills(text) {
+  const skillSections = ["Compétences", "Skills", "Expertise"];
+  const lines = text.split('\n');
+  let foundSkills = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    if (skillSections.some(section => lines[i].includes(section))) {
+      // Extraire les lignes suivantes jusqu'à la prochaine section
+      for (let j = i + 1; j < lines.length; j++) {
+        if (lines[j].trim().length === 0 || lines[j].match(/^[A-Z][a-z]+:/)) {
+          break;
+        }
+        foundSkills.push(...lines[j].split(',').map(s => s.trim()));
+      }
+      break;
+    }
+  }
+  return [...new Set(foundSkills)];
+}
+
+function extractDynamicDiplomas(text) {
+  const diplomaSections = ["Formations", "Diplômes", "Éducation"];
+  const lines = text.split('\n');
+  let foundDiplomas = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    if (diplomaSections.some(section => lines[i].includes(section))) {
+      // Extraire les lignes suivantes jusqu'à la prochaine section
+      for (let j = i + 1; j < lines.length; j++) {
+        if (lines[j].trim().length === 0 || lines[j].match(/^[A-Z][a-z]+:/)) {
+          break;
+        }
+        foundDiplomas.push(lines[j].trim());
+      }
+      break;
+    }
+  }
+  return foundDiplomas;
 }
 
 // Route principale
@@ -189,11 +266,11 @@ app.post('/api/analyze', async (req, res) => {
     const diplomas = extractDiplomas(rawText);
     
     // Extraire email
-    const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+    const emailRegex = /[\w.+-]+@[\w-]+\.[\w.-]+/g;
     const emails = rawText.match(emailRegex) || [];
     
     // Extraire téléphone (format français)
-    const phoneRegex = /(?:(?:\+|00)33|0)\s*[1-9](?:[\s.-]*\d{2}){4}/g;
+    const phoneRegex = /(?:\+?\d{1,3}[-.\s]?)?\(?\d{2,3}\)?[-.\s]?\d{2,4}[-.\s]?\d{2,4}/g;
     const phones = rawText.match(phoneRegex) || [];
 
     // 3. Calculer les années d'expérience (estimation simple)
