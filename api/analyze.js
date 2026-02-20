@@ -1,19 +1,26 @@
-// api/analyze.js
+// api/analyze.js - Version corrigée pour Vercel serverless
 import express from 'express';
 import { createClient } from '@supabase/supabase-js';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
 import natural from 'natural';
-import { WordTokenizer, PorterStemmerFr } from 'natural';
 
-// Initialisation de Supabase
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+const { WordTokenizer } = natural;
 
 const app = express();
+
+// ✅ CORRECTION : Supprimer la ligne en double
 app.use(express.json({ limit: '50mb' }));
+
+// ✅ CORRECTION : Vérifier les variables d'environnement
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!supabaseUrl || !supabaseKey) {
+  console.error("❌ Variables d'environnement Supabase manquantes");
+}
+
+const supabase = createClient(supabaseUrl || '', supabaseKey || '');
 
 // Liste des compétences techniques
 const TECHNICAL_SKILLS = [
@@ -32,6 +39,27 @@ const FRENCH_DIPLOMAS = [
   { name: "Master", keywords: ["Master", "Bac+5", "Diplôme d'Ingénieur"] },
   { name: "Doctorat", keywords: ["Doctorat", "PhD", "Thèse", "Bac+8"] }
 ];
+
+/**
+ * Extrait les mots-clés d'un texte
+ */
+function extractKeywords(text) {
+  if (!text) return [];
+  
+  const tokenizer = new WordTokenizer();
+  const words = tokenizer.tokenize(text.toLowerCase());
+
+  // Stopwords français
+  const stopwords = new Set([
+    'le', 'la', 'les', 'de', 'du', 'des', 'un', 'une', 'et', 'est', 'sont',
+    'pour', 'dans', 'sur', 'avec', 'par', 'ce', 'cet', 'cette', 'ces',
+    'qui', 'que', 'quoi', 'dont', 'ou', 'où', 'comment', 'pourquoi',
+    'mon', 'ton', 'son', 'notre', 'votre', 'leur', 'ma', 'ta', 'sa',
+    'je', 'tu', 'il', 'elle', 'nous', 'vous', 'ils', 'elles'
+  ]);
+  
+  return words.filter(word => !stopwords.has(word) && word.length > 2);
+}
 
 // Fonction pour extraire le texte d'un fichier
 async function extractTextFromFile(fileBuffer, fileType) {
@@ -52,12 +80,25 @@ async function extractTextFromFile(fileBuffer, fileType) {
 
 // Fonction pour extraire le nom et prénom
 function extractName(text) {
-  const lines = text.split('\n');
-  const nameRegex = /([A-Z][a-zéèêëàâîïôöûüç-]+)\s+([A-Z][a-zéèêëàâîïôöûüç-]+)/;
-  for (const line of lines) {
-    const match = line.match(nameRegex);
-    if (match) {
-      return { prenom: match[1], nom: match[2] };
+  const lines = text.split('\n').filter(line => line.trim().length > 0);
+  // Chercher des patterns de nom dans les premières lignes
+  const namePatterns = [
+    /([A-Z][a-zéèêëàâîïôöûüç-]+)\s+([A-Z][a-zéèêëàâîïôöûüç-]+)/, // Prénom Nom
+    /([A-Z]{2,})\s+([A-Z][a-zéèêëàâîïôöûüç-]+)/, // NOM Prénom
+  ];
+  
+  for (const line of lines.slice(0, 10)) { // Chercher dans les 10 premières lignes
+    for (const pattern of namePatterns) {
+      const match = line.match(pattern);
+      if (match) {
+        // Déterminer quel groupe est le prénom et lequel est le nom
+        if (match[1].length > 2 && match[2].length > 2) {
+          return { 
+            prenom: match[1].charAt(0) + match[1].slice(1).toLowerCase(), 
+            nom: match[2].charAt(0) + match[2].slice(1).toLowerCase() 
+          };
+        }
+      }
     }
   }
   return { prenom: null, nom: null };
@@ -65,82 +106,106 @@ function extractName(text) {
 
 // Fonction pour extraire les compétences
 function extractSkills(text) {
-  const tokenizer = new WordTokenizer();
-  const tokens = tokenizer.tokenize(text.toLowerCase());
+  const lowerText = text.toLowerCase();
   const foundSkills = new Set();
+  
   TECHNICAL_SKILLS.forEach(skill => {
-    if (tokens.includes(skill.toLowerCase())) {
+    if (lowerText.includes(skill.toLowerCase())) {
       foundSkills.add(skill);
     }
   });
+  
   return Array.from(foundSkills);
 }
 
 // Fonction pour extraire les diplômes
 function extractDiplomas(text) {
   const foundDiplomas = [];
+  const lowerText = text.toLowerCase();
+  
   FRENCH_DIPLOMAS.forEach(diploma => {
     diploma.keywords.forEach(keyword => {
-      if (text.toLowerCase().includes(keyword.toLowerCase())) {
+      if (lowerText.includes(keyword.toLowerCase())) {
         foundDiplomas.push(diploma.name);
       }
     });
   });
+  
   return [...new Set(foundDiplomas)];
-}
-
-// Fonction pour extraire les expériences
-function extractExperiences(text) {
-  const experienceRegex = /(\d{4})\s*[-–]\s*(\d{4}|présent|now)/gi;
-  const experiences = [];
-  let match;
-  while ((match = experienceRegex.exec(text)) !== null) {
-    experiences.push({
-      startYear: match[1],
-      endYear: match[2] === 'présent' || match[2] === 'now' ? new Date().getFullYear() : match[2]
-    });
-  }
-  return experiences;
 }
 
 // Route principale
 app.post('/api/analyze', async (req, res) => {
+  console.log("📥 Requête reçue sur /api/analyze");
+  
   try {
     const { filePath, jobDescription } = req.body;
+    console.log("filePath:", filePath);
+    
     if (!filePath) {
       return res.status(400).json({ success: false, error: "filePath est requis" });
     }
 
+    // ✅ Vérifier que Supabase est configuré
+    if (!supabaseUrl || !supabaseKey) {
+      return res.status(500).json({ 
+        success: false, 
+        error: "Configuration Supabase manquante" 
+      });
+    }
+
     // 1. Télécharger le fichier depuis Supabase
+    console.log("📥 Téléchargement du fichier depuis Supabase...");
     const { data: file, error: downloadError } = await supabase.storage
       .from('truthtalent')
       .download(filePath);
 
     if (downloadError) {
-      return res.status(404).json({ success: false, error: "Fichier introuvable" });
+      console.error("Erreur téléchargement:", downloadError);
+      return res.status(404).json({ 
+        success: false, 
+        error: "Fichier introuvable dans le bucket truthtalent",
+        details: downloadError.message 
+      });
+    }
+
+    if (!file) {
+      return res.status(404).json({ 
+        success: false, 
+        error: "Fichier vide ou inaccessible" 
+      });
     }
 
     const fileBuffer = await file.arrayBuffer();
     const fileType = filePath.split('.').pop().toLowerCase();
+    
+    console.log("📄 Extraction du texte du fichier...");
     const rawText = await extractTextFromFile(fileBuffer, fileType);
+    console.log(`✅ Texte extrait: ${rawText.length} caractères`);
 
     // 2. Extraire les informations
     const { prenom, nom } = extractName(rawText);
     const skills = extractSkills(rawText);
     const diplomas = extractDiplomas(rawText);
-    const experiences = extractExperiences(rawText);
-    const emails = rawText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
-    const phones = rawText.match(/(?:\+33|0)[1-9](?:[-.\s]?\d{2}){4}/g) || [];
+    
+    // Extraire email
+    const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+    const emails = rawText.match(emailRegex) || [];
+    
+    // Extraire téléphone (format français)
+    const phoneRegex = /(?:(?:\+|00)33|0)\s*[1-9](?:[\s.-]*\d{2}){4}/g;
+    const phones = rawText.match(phoneRegex) || [];
 
-    // 3. Calculer les années d'expérience
+    // 3. Calculer les années d'expérience (estimation simple)
     let totalExperience = 0;
-    experiences.forEach(exp => {
-      const start = parseInt(exp.startYear);
-      const end = exp.endYear === new Date().getFullYear() ? new Date().getFullYear() : parseInt(exp.endYear);
-      totalExperience += (end - start);
-    });
+    const experienceMatch = rawText.match(/(\d+)\s*(?:ans?|années?)\s*d'expérience/i);
+    if (experienceMatch) {
+      totalExperience = parseInt(experienceMatch[1]);
+    }
 
     // 4. Préparer la réponse
+    const cvUrl = `${supabaseUrl}/storage/v1/object/public/truthtalent/${filePath}`;
+    
     const response = {
       success: true,
       candidateInfo: {
@@ -150,30 +215,39 @@ app.post('/api/analyze', async (req, res) => {
         telephone: phones[0] || null,
         competences: skills,
         diplomes: diplomas,
-        experiences: experiences,
         annees_experience: totalExperience,
         niveau: diplomas.length > 0 ? diplomas[diplomas.length - 1] : "Non spécifié",
-        cv_url: `${process.env.SUPABASE_URL}/storage/v1/object/public/truthtalent/${filePath}`,
+        cv_url: cvUrl,
         cv_filename: filePath.split('/').pop(),
-        raw_text: rawText.substring(0, 5000),
       }
     };
 
+    console.log("✅ Analyse terminée avec succès");
     res.status(200).json(response);
+    
   } catch (error) {
-    console.error("Erreur:", error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error("❌ Erreur détaillée:", {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
+    
+    res.status(500).json({ 
+      success: false, 
+      error: error.message,
+      details: error.stack 
+    });
   }
 });
 
 // Route de santé
 app.get('/api/health', (req, res) => {
-  res.json({ status: "OK", message: "API d'analyse de CV opérationnelle" });
+  res.json({ 
+    status: "OK", 
+    message: "API d'analyse de CV opérationnelle",
+    supabase_configured: !!(supabaseUrl && supabaseKey)
+  });
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Serveur démarré sur le port ${PORT}`);
-});
-
+// ✅ CORRECTION : Exporter pour Vercel serverless
 export default app;
