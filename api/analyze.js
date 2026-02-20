@@ -12,12 +12,41 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+// À ajouter au début de votre handler, avant tout traitement
+export default async function handler(req, res) {
+  // Configuration CORS complète
+  const allowedOrigins = ['https://truthtalent.online', 'http://localhost:3000', 'http://localhost:8888'];
+  const origin = req.headers.origin;
+  
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  
+  // Headers CORS généraux
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Max-Age', '86400'); // 24 heures
+
+  // Gérer la requête OPTIONS (preflight)
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  // Vérifier la méthode
+  if (req.method !== 'POST') {
+    return res.status(405).json({ success: false, error: 'Méthode non autorisée' });
+  }
+
+  // ... reste de votre code
+}
+
 // Configuration CORS
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-};
+// const corsHeaders = {
+//   'Access-Control-Allow-Origin': '*',
+//   'Access-Control-Allow-Methods': 'POST, OPTIONS',
+//   'Access-Control-Allow-Headers': 'Content-Type',
+// };
 
 // ==================== CONFIGURATION ====================
 const CONFIG = {
