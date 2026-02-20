@@ -171,26 +171,6 @@ function extractDiplomas(text) {
   return [...new Set(foundDiplomas)];
 }
 
-function extractDynamicSkills(text) {
-  const skillSections = ["Compétences", "Skills", "Expertise"];
-  const lines = text.split('\n');
-  let foundSkills = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    if (skillSections.some(section => lines[i].includes(section))) {
-      // Extraire les lignes suivantes jusqu'à la prochaine section
-      for (let j = i + 1; j < lines.length; j++) {
-        if (lines[j].trim().length === 0 || lines[j].match(/^[A-Z][a-z]+:/)) {
-          break;
-        }
-        foundSkills.push(...lines[j].split(',').map(s => s.trim()));
-      }
-      break;
-    }
-  }
-  return [...new Set(foundSkills)];
-}
-
 function extractDynamicDiplomas(text) {
   const diplomaSections = ["Formations", "Diplômes", "Éducation"];
   const lines = text.split('\n');
