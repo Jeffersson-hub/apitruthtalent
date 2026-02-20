@@ -1,7 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
-import natural from 'natural';
 
 
 const supabaseUrl = process.env.SUPABASE_URL;
