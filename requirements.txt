@@ -1,5 +1,5 @@
-fastapi
-uvicorn
-python-multipart
-supabase
-resume-parser
+flask>=2.0.0
+supabase>=2.0.0
+pymupdf>=1.23.0
+python-dotenv>=1.0.0
+gunicorn>=20.1.0  # Pour production
