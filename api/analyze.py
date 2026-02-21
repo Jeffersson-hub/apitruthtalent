@@ -1,13 +1,14 @@
 # api/analyze.py
 import os
 import json
-import re
-import fitz  # PyMuPDF
+import logging
 from flask import Flask, request, jsonify
 from supabase import create_client, Client
 from dotenv import load_dotenv
-import logging
 from datetime import datetime
+from leverparser import ResumeParser
+from docling.document_converter import DocumentConverter
+import tempfile
 
 # Configuration
 load_dotenv()
@@ -33,11 +34,184 @@ def after_request(response):
     response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
     return response
 
+class HybridParser:
+    """Parser hybride utilisant PyResume avec fallback Docling"""
+    
+    def __init__(self):
+        try:
+            self.pyresume = ResumeParser()
+            self.docling = DocumentConverter()
+            logger.info("✅ Parser hybride initialisé")
+        except Exception as e:
+            logger.error(f"❌ Erreur initialisation parser: {e}")
+            raise
+    
+    def parse(self, file_path):
+        """Parse un CV avec fallback intelligent"""
+        try:
+            # 1. Essayer PyResume (rapide et précis)
+            logger.info(f"📄 Tentative avec PyResume: {file_path}")
+            result = self.pyresume.parse(file_path)
+            
+            # Vérifier la confiance
+            if hasattr(result, 'confidence_scores') and result.confidence_scores.overall > 0.85:
+                logger.info(f"✅ PyResume réussi avec confiance {result.confidence_scores.overall}")
+                return self.format_output(result)
+            else:
+                # Confiance trop basse, fallback vers Docling
+                logger.info(f"⚠️ Confiance faible, fallback vers Docling")
+                return self.parse_with_docling(file_path)
+                
+        except Exception as e:
+            logger.error(f"❌ Erreur parsing avec PyResume: {e}")
+            return self.parse_with_docling(file_path)
+    
+    def parse_with_docling(self, file_path):
+        """Fallback utilisant Docling pour les cas complexes"""
+        try:
+            logger.info(f"📄 Tentative avec Docling: {file_path}")
+            result = self.docling.convert(file_path)
+            
+            # Extraire le texte du document Docling
+            text = result.document.export_to_text()
+            
+            # Fallback vers extraction manuelle si Docling ne structure pas
+            return self.manual_extract(text, file_path)
+            
+        except Exception as e:
+            logger.error(f"❌ Erreur parsing avec Docling: {e}")
+            # Dernier recours : extraction manuelle
+            return self.manual_extract_from_file(file_path)
+    
+    def format_output(self, result):
+        """Formate la sortie de PyResume vers notre structure"""
+        
+        # Calcul des années d'expérience
+        years_exp = result.get_years_experience() if hasattr(result, 'get_years_experience') else 0
+        
+        return {
+            "nom": self.extract_field(result, 'contact_info.name'),
+            "prenom": self.extract_field(result, 'contact_info.first_name'),
+            "email": self.extract_field(result, 'contact_info.email'),
+            "telephone": self.extract_field(result, 'contact_info.phone'),
+            "metiers": self.extract_job_title(result),
+            "competences": self.extract_skills(result),
+            "diplomes": self.extract_diplomas(result),
+            "niveau": self.get_highest_diploma(result),
+            "annees_experience": years_exp,
+            "niveau_experience": self.get_experience_level(years_exp)
+        }
+    
+    def extract_field(self, result, field_path):
+        """Extrait un champ de manière sécurisée"""
+        try:
+            parts = field_path.split('.')
+            value = result
+            for part in parts:
+                value = getattr(value, part)
+            return value if value else None
+        except:
+            return None
+    
+    def extract_job_title(self, result):
+        """Extrait le métier des expériences"""
+        try:
+            if hasattr(result, 'experience') and result.experience:
+                return result.experience[0].title
+        except:
+            pass
+        return None
+    
+    def extract_skills(self, result):
+        """Extrait les compétences"""
+        try:
+            if hasattr(result, 'skills'):
+                return [s.name for s in result.skills if hasattr(s, 'name')]
+        except:
+            pass
+        return []
+    
+    def extract_diplomas(self, result):
+        """Extrait les diplômes"""
+        try:
+            if hasattr(result, 'education'):
+                return [e.degree for e in result.education if hasattr(e, 'degree')]
+        except:
+            pass
+        return []
+    
+    def get_highest_diploma(self, result):
+        """Retourne le diplôme le plus élevé"""
+        diplomas = self.extract_diplomas(result)
+        if diplomas:
+            # Ordre de priorité (du plus élevé au plus bas)
+            priority = ['Doctorat', 'Master', 'Ingénieur', 'Licence', 'BTS', 'Bac']
+            for p in priority:
+                if any(p in d for d in diplomas):
+                    return p
+            return diplomas[0]
+        return None
+    
+    def get_experience_level(self, years):
+        """Détermine le niveau d'expérience"""
+        if years < 2:
+            return "junior"
+        elif years < 5:
+            return "intermédiaire"
+        elif years < 10:
+            return "confirmé"
+        else:
+            return "senior"
+    
+    def manual_extract(self, text, file_path):
+        """Extraction manuelle basique (fallback ultime)"""
+        import re
+        
+        result = {
+            "nom": None,
+            "prenom": None,
+            "email": None,
+            "telephone": None,
+            "metiers": None,
+            "competences": [],
+            "diplomes": [],
+            "niveau": None,
+            "annees_experience": 0,
+            "niveau_experience": "junior"
+        }
+        
+        # Email
+        email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', text)
+        if email_match:
+            result['email'] = email_match.group(0)
+        
+        # Téléphone
+        phone_match = re.search(r'(?:(?:\+|00)33|0)[1-9](?:[\s.-]?\d{2}){4}', text)
+        if phone_match:
+            result['telephone'] = re.sub(r'[\s.-]', '', phone_match.group(0))
+        
+        return result
+    
+    def manual_extract_from_file(self, file_path):
+        """Dernier recours : extraction simple du texte"""
+        try:
+            with open(file_path, 'r', errors='ignore') as f:
+                text = f.read()
+            return self.manual_extract(text, file_path)
+        except:
+            return self.manual_extract("", file_path)
+
+# Initialisation du parser global
+try:
+    parser = HybridParser()
+except Exception as e:
+    logger.error(f"❌ Échec initialisation parser: {e}")
+    parser = None
+
 @app.route('/api/analyze', methods=['POST', 'OPTIONS'])
 def analyze():
     """Route principale d'analyse"""
     
-    # Gérer OPTIONS (preflight CORS)
     if request.method == 'OPTIONS':
         return '', 200
     
@@ -50,31 +224,38 @@ def analyze():
         
         logger.info(f"📥 Analyse: {file_path}")
         
-        # 1. Télécharger le fichier depuis Supabase
+        # Télécharger le fichier depuis Supabase
         file_data = download_from_supabase(file_path)
         
-        # 2. Extraire le texte
-        text = extract_text(file_data, file_path)
+        # Sauvegarder temporairement
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
+            tmp_file.write(file_data)
+            tmp_path = tmp_file.name
         
-        # 3. Analyser le CV
-        cv_data = parse_resume(text)
-        
-        # 4. Calculer l'expérience
-        cv_data['annees_experience'] = calculate_experience(text)
-        
-        # 5. Déterminer le niveau
-        cv_data['niveau_experience'] = get_experience_level(cv_data['annees_experience'])
-        
-        # 6. URL publique
-        cv_data['cv_url'] = f"{SUPABASE_URL}/storage/v1/object/public/truthtalent/{file_path}"
-        cv_data['fichier'] = file_path
-        
-        logger.info(f"✅ Analyse terminée: {cv_data.get('nom')} {cv_data.get('prenom')}")
-        
-        return jsonify({
-            "success": True,
-            "candidateInfo": cv_data
-        })
+        try:
+            # Parser le CV
+            if parser:
+                cv_data = parser.parse(tmp_path)
+            else:
+                # Fallback si parser non initialisé
+                cv_data = fallback_extract(file_data, file_path)
+            
+            # Ajouter les métadonnées
+            cv_data['cv_url'] = f"{SUPABASE_URL}/storage/v1/object/public/truthtalent/{file_path}"
+            cv_data['cv_filename'] = file_path.split('/')[-1]
+            cv_data['fichier'] = file_path
+            
+            logger.info(f"✅ Analyse terminée: {cv_data.get('nom')} {cv_data.get('prenom')}")
+            
+            return jsonify({
+                "success": True,
+                "candidateInfo": cv_data
+            })
+            
+        finally:
+            # Nettoyer le fichier temporaire
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
         
     except Exception as e:
         logger.error(f"❌ Erreur: {str(e)}")
@@ -85,35 +266,10 @@ def download_from_supabase(file_path: str) -> bytes:
     response = supabase.storage.from_('truthtalent').download(file_path)
     return response
 
-def extract_text(file_data: bytes, file_path: str) -> str:
-    """Extrait le texte d'un PDF ou DOCX"""
-    ext = file_path.split('.')[-1].lower()
-    temp_path = f"/tmp/{datetime.now().timestamp()}.{ext}"
+def fallback_extract(file_data: bytes, file_path: str) -> dict:
+    """Extraction basique si le parser principal échoue"""
+    import re
     
-    try:
-        with open(temp_path, 'wb') as f:
-            f.write(file_data)
-        
-        if ext == 'pdf':
-            doc = fitz.open(temp_path)
-            text = ""
-            for page in doc:
-                text += page.get_text()
-            return text
-        elif ext == 'docx':
-            # Pour DOCX, on peut utiliser une librairie légère
-            # Mais on garde simple pour l'instant
-            return "Texte extrait du DOCX"
-        else:
-            raise ValueError(f"Format non supporté: {ext}")
-    finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-
-def parse_resume(text: str) -> dict:
-    """Analyse le CV avec des regex simples mais efficaces"""
-    
-    # Initialisation
     result = {
         "nom": None,
         "prenom": None,
@@ -123,97 +279,28 @@ def parse_resume(text: str) -> dict:
         "competences": [],
         "diplomes": [],
         "niveau": None,
-        "experiences": []
+        "annees_experience": 0,
+        "niveau_experience": "junior"
     }
     
-    # Email
-    email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', text)
-    if email_match:
-        result['email'] = email_match.group(0)
-    
-    # Téléphone (format français)
-    phone_match = re.search(r'(?:(?:\+|00)33|0)[1-9](?:[\s.-]?\d{2}){4}', text)
-    if phone_match:
-        result['telephone'] = phone_match.group(0).replace(' ', '').replace('.', '')
-    
-    # Nom/Prénom (chercher dans les 10 premières lignes)
-    lines = text.split('\n')[:10]
-    for line in lines:
-        # Pattern: Deux mots avec majuscules
-        match = re.search(r'^([A-Z][a-zéèêëàâîïôöûüç]+)\s+([A-Z][a-zéèêëàâîïôöûüç]+)$', line.strip())
-        if match:
-            result['prenom'] = match.group(1)
-            result['nom'] = match.group(2)
-            break
-    
-    # Compétences (liste prédéfinie)
-    skills_list = [
-        'Python', 'Java', 'JavaScript', 'SQL', 'React', 'Node.js',
-        'AWS', 'Docker', 'Git', 'Linux', 'Communication',
-        'Gestion de projet', 'Recrutement', 'Vente', 'Marketing'
-    ]
-    
-    for skill in skills_list:
-        if re.search(rf'\b{re.escape(skill)}\b', text, re.IGNORECASE):
-            result['competences'].append(skill)
-    
-    # Diplômes
-    diploma_patterns = [
-        ('Doctorat', r'doctorat|phd'),
-        ('Master', r'master|bac\+5'),
-        ('Ingénieur', r'ingénieur'),
-        ('Licence', r'licence|bac\+3'),
-        ('BTS', r'bts'),
-        ('Bac', r'bac(?:calauréat)?')
-    ]
-    
-    for diplome, pattern in diploma_patterns:
-        if re.search(pattern, text, re.IGNORECASE):
-            result['diplomes'].append(diplome)
-    
-    if result['diplomes']:
-        result['niveau'] = result['diplomes'][0]
-    
-    # Métier
-    job_patterns = [
-        ('Ingénieur', r'ingénieur'),
-        ('Développeur', r'développeur'),
-        ('Chef de projet', r'chef de projet'),
-        ('Chargé RH', r'charg[ée]\s+rh|ressources humaines'),
-        ('Commercial', r'commercial|vendeur'),
-        ('Marketing', r'marketing|communication')
-    ]
-    
-    for job, pattern in job_patterns:
-        if re.search(pattern, text, re.IGNORECASE):
-            result['metiers'] = job
-            break
+    # Essayer d'extraire du texte basique
+    try:
+        text = file_data.decode('utf-8', errors='ignore')
+        
+        # Email
+        email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', text)
+        if email_match:
+            result['email'] = email_match.group(0)
+        
+        # Téléphone
+        phone_match = re.search(r'(?:(?:\+|00)33|0)[1-9](?:[\s.-]?\d{2}){4}', text)
+        if phone_match:
+            result['telephone'] = re.sub(r'[\s.-]', '', phone_match.group(0))
+            
+    except:
+        pass
     
     return result
 
-def calculate_experience(text: str) -> int:
-    """Calcule les années d'expérience"""
-    # Pattern direct
-    match = re.search(r'(\d+)\s*(?:ans?|années?)\s*d\'expérience', text, re.IGNORECASE)
-    if match:
-        return int(match.group(1))
-    
-    # Compter les dates
-    dates = re.findall(r'\b(19|20)\d{2}\b', text)
-    if len(dates) >= 2:
-        years = [int(d) for d in dates]
-        return max(years) - min(years)
-    
-    return 0
-
-def get_experience_level(years: int) -> str:
-    """Niveau d'expérience"""
-    if years < 3:
-        return "junior"
-    elif years < 7:
-        return "confirmé"
-    else:
-        return "senior"
-
-# Pour Vercel (nécessaire)
+# Pour Vercel
 app = app

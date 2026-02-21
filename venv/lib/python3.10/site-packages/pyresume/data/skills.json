@@ -1,0 +1,77 @@
+{
+  "programming_languages": [
+    "Python", "JavaScript", "Java", "C++", "C#", "C", "Go", "Rust", "Swift", "Kotlin",
+    "TypeScript", "PHP", "Ruby", "Scala", "R", "MATLAB", "Perl", "Lua", "Dart", "Objective-C",
+    "Assembly", "COBOL", "Fortran", "Haskell", "Erlang", "Elixir", "Clojure", "F#", "VB.NET"
+  ],
+  "web_technologies": [
+    "HTML", "CSS", "React", "Angular", "Vue.js", "Node.js", "Express.js", "Django", "Flask",
+    "Spring", "ASP.NET", "Laravel", "Symfony", "Ruby on Rails", "FastAPI", "Nuxt.js", "Next.js",
+    "Svelte", "jQuery", "Bootstrap", "Tailwind CSS", "Sass", "Less", "Webpack", "Babel", "Vite"
+  ],
+  "databases": [
+    "MySQL", "PostgreSQL", "SQLite", "MongoDB", "Redis", "Cassandra", "DynamoDB", "Oracle",
+    "SQL Server", "MariaDB", "CouchDB", "Neo4j", "InfluxDB", "Elasticsearch", "Firebase",
+    "Amazon RDS", "Google Cloud SQL", "Azure SQL", "Snowflake", "BigQuery"
+  ],
+  "cloud_platforms": [
+    "AWS", "Google Cloud", "Microsoft Azure", "Heroku", "DigitalOcean", "Linode", "Vultr",
+    "IBM Cloud", "Oracle Cloud", "Alibaba Cloud", "Salesforce", "Vercel", "Netlify"
+  ],
+  "devops_tools": [
+    "Docker", "Kubernetes", "Jenkins", "GitLab CI", "GitHub Actions", "CircleCI", "Travis CI",
+    "Ansible", "Terraform", "Chef", "Puppet", "Vagrant", "Helm", "Istio", "Prometheus",
+    "Grafana", "ELK Stack", "Splunk", "Nagios", "Datadog", "New Relic"
+  ],
+  "version_control": [
+    "Git", "GitHub", "GitLab", "Bitbucket", "SVN", "Mercurial", "Perforce"
+  ],
+  "mobile_development": [
+    "React Native", "Flutter", "Xamarin", "Ionic", "Cordova", "PhoneGap", "NativeScript",
+    "Android Studio", "Xcode", "Swift UI", "Jetpack Compose"
+  ],
+  "data_science": [
+    "Pandas", "NumPy", "Scikit-learn", "TensorFlow", "PyTorch", "Keras", "Matplotlib",
+    "Seaborn", "Plotly", "Jupyter", "Apache Spark", "Hadoop", "Tableau", "Power BI",
+    "D3.js", "Apache Kafka", "Apache Airflow", "MLflow", "Kubeflow"
+  ],
+  "testing": [
+    "Jest", "Mocha", "Chai", "Cypress", "Selenium", "PyTest", "JUnit", "TestNG", "Postman",
+    "Insomnia", "SoapUI", "LoadRunner", "JMeter", "Cucumber", "Jasmine", "Karma"
+  ],
+  "project_management": [
+    "Agile", "Scrum", "Kanban", "JIRA", "Trello", "Asana", "Monday.com", "Slack", "Microsoft Teams",
+    "Confluence", "Notion", "Linear", "ClickUp", "Basecamp"
+  ],
+  "design_tools": [
+    "Figma", "Adobe XD", "Sketch", "InVision", "Zeplin", "Adobe Creative Suite", "Photoshop",
+    "Illustrator", "After Effects", "Premiere Pro", "Canva", "Framer"
+  ],
+  "operating_systems": [
+    "Linux", "Ubuntu", "CentOS", "RHEL", "Debian", "Fedora", "macOS", "Windows", "Windows Server",
+    "FreeBSD", "OpenBSD", "Solaris", "Alpine Linux"
+  ],
+  "networking": [
+    "TCP/IP", "HTTP/HTTPS", "DNS", "VPN", "Load Balancing", "CDN", "Nginx", "Apache",
+    "Cloudflare", "F5", "Cisco", "Juniper", "BGP", "OSPF", "MPLS"
+  ],
+  "security": [
+    "OAuth", "JWT", "SSL/TLS", "HTTPS", "Encryption", "Penetration Testing", "OWASP",
+    "Vulnerability Assessment", "Firewall", "IDS/IPS", "SIEM", "PKI", "LDAP", "Active Directory"
+  ],
+  "frameworks": [
+    "Spring Boot", "Hibernate", "Struts", "Express.js", "Koa.js", "Fastify", "Gin", "Echo",
+    "Fiber", ".NET Core", "Entity Framework", "Symfony", "CodeIgniter", "CakePHP", "Zend",
+    "Qt", "GTK", "Electron", "Tauri"
+  ],
+  "soft_skills": [
+    "Leadership", "Communication", "Teamwork", "Problem Solving", "Critical Thinking",
+    "Project Management", "Time Management", "Adaptability", "Creativity", "Analytical Skills",
+    "Decision Making", "Conflict Resolution", "Mentoring", "Public Speaking", "Negotiation"
+  ],
+  "certifications": [
+    "AWS Certified", "Google Cloud Certified", "Microsoft Certified", "Certified Kubernetes",
+    "PMP", "Scrum Master", "CISSP", "CISM", "CompTIA", "Cisco Certified", "Oracle Certified",
+    "Red Hat Certified", "Docker Certified", "Salesforce Certified"
+  ]
+}
