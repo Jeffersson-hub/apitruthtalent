@@ -10,6 +10,7 @@ from leverparser import ResumeParser
 from docling.document_converter import DocumentConverter
 import tempfile
 
+
 # Configuration
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
