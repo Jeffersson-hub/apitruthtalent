@@ -11,5 +11,11 @@
       "src": "/api/analyze",
       "dest": "api/analyze.py"
     }
-  ]
+  ],
+  "functions": {
+    "api/analyze.py": {
+      "includeFiles": "requirements.txt",
+      "runtime": "python3.12"
+    }
+  }
 }
