@@ -1,4 +1,3 @@
-# api/analyze.py - Version qui gère TOUS vos CVs
 import os
 import re
 import tempfile
@@ -7,26 +6,25 @@ from flask import Flask, request, jsonify
 from supabase import create_client
 from dotenv import load_dotenv
 
+# Charger les variables d'environnement
 load_dotenv()
+
 app = Flask(__name__)
 
-# Supabase
-supabase = create_client(
-    os.environ["SUPABASE_URL"],
-    os.environ["SUPABASE_SERVICE_ROLE_KEY"]
-)
+# Initialisation Supabase
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 class UniversalCVExtractor:
-    """Extracteur qui s'adapte à TOUS les formats de CV"""
+    """Extracteur universel de CV"""
     
     def __init__(self):
-        # Patterns de noms (prénom nom / NOM Prénom)
         self.name_patterns = [
-            r'^([A-Z][a-zéèêëàâîïôöûüç-]+)\s+([A-Z][a-zéèêëàâîïôöûüç-]+)$',  # Prénom Nom
-            r'^([A-Z]{2,}(?:-[A-Z]{2,})?)\s+([A-Z][a-zéèêëàâîïôöûüç-]+)$'      # NOM Prénom
+            r'^([A-Z][a-zéèêëàâîïôöûüç-]+)\s+([A-Z][a-zéèêëàâîïôöûüç-]+)$',
+            r'^([A-Z]{2,}(?:-[A-Z]{2,})?)\s+([A-Z][a-zéèêëàâîïôöûüç-]+)$'
         ]
         
-        # Compétences par catégorie (pour éviter les faux positifs)
         self.skills_db = {
             'tech': [
                 'Python', 'Java', 'JavaScript', 'TypeScript', 'SQL', 'React',
@@ -52,7 +50,6 @@ class UniversalCVExtractor:
             ]
         }
         
-        # Métiers avec mots-clés associés
         self.jobs_db = {
             'Ingénieur': ['ingénieur', 'devops', 'sysops', 'architecte'],
             'Développeur': ['développeur', 'developer', 'programmeur', 'full stack'],
@@ -64,13 +61,12 @@ class UniversalCVExtractor:
             'Technicien': ['technicien', 'support', 'maintenance', 'helpdesk']
         }
         
-        # Niveaux de diplômes
         self.diploma_levels = [
             'Doctorat', 'Master', 'Ingénieur', 'Licence', 'BTS', 'DUT', 'Bac', 'CAP', 'BEP'
         ]
     
     def extract_text_from_pdf(self, pdf_path):
-        """Extraction robuste avec fallback"""
+        """Extraction texte du PDF"""
         try:
             doc = fitz.open(pdf_path)
             text = ""
@@ -82,18 +78,50 @@ class UniversalCVExtractor:
             return ""
     
     def clean_text(self, text):
-        """Nettoie le texte pour l'analyse"""
-        # Supprime les caractères bizarres mais garde l'essentiel
+        """Nettoie le texte"""
         text = re.sub(r'[^\w\s@.,;:!?()/-]', ' ', text)
-        # Normalise les espaces
         text = re.sub(r'\s+', ' ', text)
         return text.strip()
     
-    def extract_name(self, text):
-        """Extraction nom/prénom multi-stratégies"""
-        lines = text.split('\n')[:10]  # Cherche dans les 10 premières lignes
+    def extract_name_from_filename(self, filename):
+        """Extrait nom/prénom depuis le nom de fichier"""
+        if not filename:
+            return {'prenom': None, 'nom': None}
+            
+        # Enlever l'extension et le timestamp
+        name_part = filename.replace('.pdf', '').replace('.docx', '').replace('.doc', '')
+        name_part = re.sub(r'^\d+_', '', name_part)
+        name_part = name_part.replace('_', ' ').replace('-', ' ')
         
-        # Stratégie 1: Patterns directs
+        # Patterns dans le nom de fichier
+        patterns = [
+            (r'CV[_-]?([A-Z]+)[_-]?([A-Z][a-z]+)', True),  # CV_BOISGONTIER_Jean
+            (r'([A-Z][a-z]+)[_-]([A-Z]+)', False),          # Jean_BOISGONTIER
+            (r'([A-Z]+)[_-]([A-Z][a-z]+)', True),           # BOISGONTIER_Jean
+        ]
+        
+        for pattern, first_is_nom in patterns:
+            match = re.search(pattern, name_part)
+            if match:
+                if first_is_nom:
+                    return {'nom': match.group(1), 'prenom': match.group(2)}
+                else:
+                    return {'prenom': match.group(1), 'nom': match.group(2)}
+        
+        # Fallback: prendre les deux premiers mots
+        words = name_part.split()
+        if len(words) >= 2:
+            return {
+                'prenom': words[0].capitalize(),
+                'nom': ' '.join(words[1:]).capitalize()
+            }
+        
+        return {'prenom': None, 'nom': None}
+    
+    def extract_name(self, text, filename=None):
+        """Extraction nom/prénom"""
+        lines = text.split('\n')[:10]
+        
         for line in lines:
             line = line.strip()
             if len(line) < 5 or len(line) > 40:
@@ -107,79 +135,52 @@ class UniversalCVExtractor:
                         'nom': match.group(2)
                     }
         
-        # Stratégie 2: Lignes avec # (titres)
-        for line in lines:
-            if line.startswith('#') and len(line) < 50:
-                words = re.sub(r'#', '', line).strip().split()
-                if len(words) >= 2:
-                    return {
-                        'prenom': words[0],
-                        'nom': ' '.join(words[1:])
-                    }
+        if filename:
+            return self.extract_name_from_filename(filename)
         
-        # Stratégie 3: Chercher dans le nom de fichier
         return {'prenom': None, 'nom': None}
     
     def extract_email(self, text):
-        """Extraction email - pattern universel"""
         emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', text)
-        # Filtre les emails invalides
         valid_emails = [e for e in emails if not any(x in e for x in ['example', 'test', 'email'])]
         return valid_emails[0] if valid_emails else None
     
     def extract_phone(self, text):
-        """Extraction téléphone - formats français et internationaux"""
         patterns = [
-            r'(?:(?:\+|00)33|0)[1-9](?:[\s.-]?\d{2}){4}',  # Format français
-            r'0[1-9](?:[\s.-]?\d{2}){4}'                    # Format simple
+            r'(?:(?:\+|00)33|0)[1-9](?:[\s.-]?\d{2}){4}',
+            r'0[1-9](?:[\s.-]?\d{2}){4}'
         ]
-        
         for pattern in patterns:
             phones = re.findall(pattern, text)
             if phones:
-                # Nettoie et retourne le premier
                 return re.sub(r'[\s.-]', '', phones[0])
         return None
     
     def extract_skills(self, text):
-        """Extraction compétences avec contexte"""
         text_lower = text.lower()
         found = []
-        
         for category, skills in self.skills_db.items():
             for skill in skills:
-                # Vérifie que c'est un mot entier
                 if re.search(rf'\b{re.escape(skill.lower())}\b', text_lower):
                     found.append(skill)
-        
         return found
     
     def extract_job(self, text):
-        """Extraction métier avec score de confiance"""
         text_lower = text.lower()
         best_match = None
         best_score = 0
-        
         for job, keywords in self.jobs_db.items():
-            score = 0
-            for kw in keywords:
-                if kw in text_lower:
-                    score += 1
+            score = sum(1 for kw in keywords if kw in text_lower)
             if score > best_score:
                 best_score = score
                 best_match = job
-        
         return best_match if best_score > 0 else None
     
     def extract_diploma(self, text):
-        """Extraction du plus haut diplôme"""
         text_lower = text.lower()
-        
         for diploma in self.diploma_levels:
             if diploma.lower() in text_lower:
                 return diploma
-        
-        # Cherche des patterns alternatifs
         if re.search(r'phd|doctorat', text_lower):
             return 'Doctorat'
         elif re.search(r'master|bac\+5', text_lower):
@@ -192,17 +193,14 @@ class UniversalCVExtractor:
             return 'BTS'
         elif re.search(r'bac', text_lower):
             return 'Bac'
-        
         return None
     
-    def parse(self, pdf_path):
+    def parse(self, pdf_path, filename=None):
         """Parse complet d'un CV"""
-        # Extraction et nettoyage
         raw_text = self.extract_text_from_pdf(pdf_path)
         text = self.clean_text(raw_text)
         
-        # Extraction de toutes les informations
-        name = self.extract_name(text)
+        name = self.extract_name(text, filename)
         email = self.extract_email(text)
         phone = self.extract_phone(text)
         job = self.extract_job(text)
@@ -243,12 +241,13 @@ def analyze():
             tmp_path = tmp.name
         
         try:
-            # Extraction
-            result = extractor.parse(tmp_path)
+            # Extraction avec le nom de fichier
+            filename = file_path.split('/')[-1]
+            result = extractor.parse(tmp_path, filename)
             
             # Ajout métadonnées
-            result['cv_url'] = f"{os.environ['SUPABASE_URL']}/storage/v1/object/public/truthtalent/{file_path}"
-            result['cv_filename'] = file_path.split('/')[-1]
+            result['cv_url'] = f"{SUPABASE_URL}/storage/v1/object/public/truthtalent/{file_path}"
+            result['cv_filename'] = filename
             result['fichier'] = file_path
             
             return jsonify({
@@ -272,3 +271,6 @@ def after_request(response):
 
 # Pour Vercel
 app = app
+
+if __name__ == "__main__":
+    app.run(host='0.0.0.0', port=5000, debug=True)
