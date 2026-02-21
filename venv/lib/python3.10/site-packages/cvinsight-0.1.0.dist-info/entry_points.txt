@@ -1,0 +1,2 @@
+[console_scripts]
+cvinsight = cvinsight.cli:main

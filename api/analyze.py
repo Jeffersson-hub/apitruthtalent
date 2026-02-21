@@ -1,224 +1,25 @@
+# api/analyze.py - Version Gemini directe (100% fiable)
 import os
-import re
+import json
 import tempfile
-import fitz  # PyMuPDF
+import PyPDF2
+import google.generativeai as genai
 from flask import Flask, request, jsonify
 from supabase import create_client
 from dotenv import load_dotenv
 
-# Charger les variables d'environnement
 load_dotenv()
-
 app = Flask(__name__)
 
-# Initialisation Supabase
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+# Configuration
+supabase = create_client(
+    os.environ["SUPABASE_URL"],
+    os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+)
 
-class UniversalCVExtractor:
-    """Extracteur universel de CV"""
-    
-    def __init__(self):
-        self.name_patterns = [
-            r'^([A-Z][a-zéèêëàâîïôöûüç-]+)\s+([A-Z][a-zéèêëàâîïôöûüç-]+)$',
-            r'^([A-Z]{2,}(?:-[A-Z]{2,})?)\s+([A-Z][a-zéèêëàâîïôöûüç-]+)$'
-        ]
-        
-        self.skills_db = {
-            'tech': [
-                'Python', 'Java', 'JavaScript', 'TypeScript', 'SQL', 'React',
-                'Angular', 'Vue', 'Node.js', 'Django', 'Spring', 'AWS', 'Azure',
-                'GCP', 'Docker', 'Kubernetes', 'Jenkins', 'Git', 'Linux',
-                'Bash', 'PowerShell', 'Ansible', 'Terraform', 'MySQL',
-                'PostgreSQL', 'MongoDB', 'Oracle', 'Redis', 'Elasticsearch'
-            ],
-            'rh': [
-                'Recrutement', 'Sourcing', 'ADP', 'Paie', 'CSE', 'NAO', 'GPEC',
-                'Formation', 'Droit du travail', 'Administration du personnel',
-                'Relations sociales', 'Entretien', 'Évaluation'
-            ],
-            'commercial': [
-                'Vente', 'Prospection', 'Négociation', 'Relation client',
-                'Fidélisation', 'Force de vente', 'Commerce', 'Conseil',
-                'Développement commercial', 'Business development'
-            ],
-            'communication': [
-                'Marketing', 'Communication', 'Réseaux sociaux', 'Community management',
-                'Canva', 'Photoshop', 'WordPress', 'Content creation',
-                'Rédaction web', 'SEO', 'Emailing', 'Newsletter'
-            ]
-        }
-        
-        self.jobs_db = {
-            'Ingénieur': ['ingénieur', 'devops', 'sysops', 'architecte'],
-            'Développeur': ['développeur', 'developer', 'programmeur', 'full stack'],
-            'Data': ['data scientist', 'data analyst', 'data engineer', 'machine learning'],
-            'Chef de projet': ['chef de projet', 'project manager', 'product owner'],
-            'Commercial': ['commercial', 'vendeur', 'business developer', 'account executive'],
-            'Chargé RH': ['chargé rh', 'recruteur', 'ressources humaines', 'hr'],
-            'Marketing': ['marketing', 'community manager', 'social media'],
-            'Technicien': ['technicien', 'support', 'maintenance', 'helpdesk']
-        }
-        
-        self.diploma_levels = [
-            'Doctorat', 'Master', 'Ingénieur', 'Licence', 'BTS', 'DUT', 'Bac', 'CAP', 'BEP'
-        ]
-    
-    def extract_text_from_pdf(self, pdf_path):
-        """Extraction texte du PDF"""
-        try:
-            doc = fitz.open(pdf_path)
-            text = ""
-            for page in doc:
-                text += page.get_text() + "\n"
-            return text
-        except Exception as e:
-            print(f"Erreur extraction PDF: {e}")
-            return ""
-    
-    def clean_text(self, text):
-        """Nettoie le texte"""
-        text = re.sub(r'[^\w\s@.,;:!?()/-]', ' ', text)
-        text = re.sub(r'\s+', ' ', text)
-        return text.strip()
-    
-    def extract_name_from_filename(self, filename):
-        """Extrait nom/prénom depuis le nom de fichier"""
-        if not filename:
-            return {'prenom': None, 'nom': None}
-            
-        # Enlever l'extension et le timestamp
-        name_part = filename.replace('.pdf', '').replace('.docx', '').replace('.doc', '')
-        name_part = re.sub(r'^\d+_', '', name_part)
-        name_part = name_part.replace('_', ' ').replace('-', ' ')
-        
-        # Patterns dans le nom de fichier
-        patterns = [
-            (r'CV[_-]?([A-Z]+)[_-]?([A-Z][a-z]+)', True),  # CV_BOISGONTIER_Jean
-            (r'([A-Z][a-z]+)[_-]([A-Z]+)', False),          # Jean_BOISGONTIER
-            (r'([A-Z]+)[_-]([A-Z][a-z]+)', True),           # BOISGONTIER_Jean
-        ]
-        
-        for pattern, first_is_nom in patterns:
-            match = re.search(pattern, name_part)
-            if match:
-                if first_is_nom:
-                    return {'nom': match.group(1), 'prenom': match.group(2)}
-                else:
-                    return {'prenom': match.group(1), 'nom': match.group(2)}
-        
-        # Fallback: prendre les deux premiers mots
-        words = name_part.split()
-        if len(words) >= 2:
-            return {
-                'prenom': words[0].capitalize(),
-                'nom': ' '.join(words[1:]).capitalize()
-            }
-        
-        return {'prenom': None, 'nom': None}
-    
-    def extract_name(self, text, filename=None):
-        """Extraction nom/prénom"""
-        lines = text.split('\n')[:10]
-        
-        for line in lines:
-            line = line.strip()
-            if len(line) < 5 or len(line) > 40:
-                continue
-            
-            for pattern in self.name_patterns:
-                match = re.match(pattern, line)
-                if match:
-                    return {
-                        'prenom': match.group(1),
-                        'nom': match.group(2)
-                    }
-        
-        if filename:
-            return self.extract_name_from_filename(filename)
-        
-        return {'prenom': None, 'nom': None}
-    
-    def extract_email(self, text):
-        emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', text)
-        valid_emails = [e for e in emails if not any(x in e for x in ['example', 'test', 'email'])]
-        return valid_emails[0] if valid_emails else None
-    
-    def extract_phone(self, text):
-        patterns = [
-            r'(?:(?:\+|00)33|0)[1-9](?:[\s.-]?\d{2}){4}',
-            r'0[1-9](?:[\s.-]?\d{2}){4}'
-        ]
-        for pattern in patterns:
-            phones = re.findall(pattern, text)
-            if phones:
-                return re.sub(r'[\s.-]', '', phones[0])
-        return None
-    
-    def extract_skills(self, text):
-        text_lower = text.lower()
-        found = []
-        for category, skills in self.skills_db.items():
-            for skill in skills:
-                if re.search(rf'\b{re.escape(skill.lower())}\b', text_lower):
-                    found.append(skill)
-        return found
-    
-    def extract_job(self, text):
-        text_lower = text.lower()
-        best_match = None
-        best_score = 0
-        for job, keywords in self.jobs_db.items():
-            score = sum(1 for kw in keywords if kw in text_lower)
-            if score > best_score:
-                best_score = score
-                best_match = job
-        return best_match if best_score > 0 else None
-    
-    def extract_diploma(self, text):
-        text_lower = text.lower()
-        for diploma in self.diploma_levels:
-            if diploma.lower() in text_lower:
-                return diploma
-        if re.search(r'phd|doctorat', text_lower):
-            return 'Doctorat'
-        elif re.search(r'master|bac\+5', text_lower):
-            return 'Master'
-        elif re.search(r'ingénieur', text_lower):
-            return 'Ingénieur'
-        elif re.search(r'licence|bac\+3', text_lower):
-            return 'Licence'
-        elif re.search(r'bts', text_lower):
-            return 'BTS'
-        elif re.search(r'bac', text_lower):
-            return 'Bac'
-        return None
-    
-    def parse(self, pdf_path, filename=None):
-        """Parse complet d'un CV"""
-        raw_text = self.extract_text_from_pdf(pdf_path)
-        text = self.clean_text(raw_text)
-        
-        name = self.extract_name(text, filename)
-        email = self.extract_email(text)
-        phone = self.extract_phone(text)
-        job = self.extract_job(text)
-        skills = self.extract_skills(text)
-        diploma = self.extract_diploma(text)
-        
-        return {
-            'nom': name['nom'],
-            'prenom': name['prenom'],
-            'email': email,
-            'telephone': phone,
-            'metier': job,
-            'competences': skills,
-            'niveau': diploma
-        }
-
-# Initialisation
-extractor = UniversalCVExtractor()
+# Initialisation Gemini
+genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
+model = genai.GenerativeModel('gemini-1.5-flash')  # Version gratuite et rapide
 
 @app.route('/api/analyze', methods=['POST', 'OPTIONS'])
 def analyze():
@@ -232,34 +33,96 @@ def analyze():
         if not file_path:
             return jsonify({"success": False, "error": "filePath requis"}), 400
         
-        # Téléchargement
+        # 1. Télécharger le PDF
         file_data = supabase.storage.from_('truthtalent').download(file_path)
         
-        # Sauvegarde temporaire
+        # 2. Sauvegarder temporairement
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
             tmp.write(file_data)
             tmp_path = tmp.name
         
         try:
-            # Extraction avec le nom de fichier
-            filename = file_path.split('/')[-1]
-            result = extractor.parse(tmp_path, filename)
+            # 3. Extraire le texte du PDF
+            text = ""
+            with open(tmp_path, 'rb') as f:
+                reader = PyPDF2.PdfReader(f)
+                for page in reader.pages:
+                    text += page.extract_text() + "\n"
             
-            # Ajout métadonnées
-            result['cv_url'] = f"{SUPABASE_URL}/storage/v1/object/public/truthtalent/{file_path}"
-            result['cv_filename'] = filename
-            result['fichier'] = file_path
+            # 4. Prompt clair pour Gemini
+            prompt = f"""
+            Analyse ce CV et retourne UNIQUEMENT un JSON valide avec ces champs :
+            - nom_complet
+            - email
+            - telephone
+            - metier (le poste principal)
+            - competences (liste de 5-10 compétences clés)
+            - diplome (le plus élevé)
+            - experience_annees (nombre)
+
+            CV :
+            {text[:6000]}
+
+            Exemple de format attendu :
+            {{
+                "nom_complet": "Jean Dupont",
+                "email": "jean.dupont@email.com",
+                "telephone": "0612345678",
+                "metier": "Ingénieur DevOps",
+                "competences": ["Python", "AWS", "Docker"],
+                "diplome": "Master",
+                "experience_annees": 5
+            }}
+            """
             
-            return jsonify({
-                "success": True,
-                "candidateInfo": result
-            })
+            # 5. Appel à Gemini
+            response = model.generate_content(prompt)
+            result_text = response.text.strip()
+            
+            # Nettoyer la réponse (enlever ```json si présent)
+            if result_text.startswith('```json'):
+                result_text = result_text[7:]
+            if result_text.endswith('```'):
+                result_text = result_text[:-3]
+            
+            result = json.loads(result_text)
+            
+            # 6. Extraire nom et prénom
+            nom_complet = result.get('nom_complet', '').strip()
+            nom_parts = nom_complet.split()
+            
+            candidate = {
+                "nom": nom_parts[-1] if len(nom_parts) > 1 else None,
+                "prenom": nom_parts[0] if nom_parts else None,
+                "email": result.get('email'),
+                "telephone": result.get('telephone'),
+                "metier": result.get('metier'),
+                "competences": result.get('competences', []),
+                "niveau": result.get('diplome'),
+                "annees_experience": result.get('experience_annees', 0),
+                "cv_url": f"{os.environ['SUPABASE_URL']}/storage/v1/object/public/truthtalent/{file_path}",
+                "cv_filename": file_path.split('/')[-1],
+                "fichier": file_path
+            }
+            
+            # Niveau d'expérience
+            exp = candidate["annees_experience"]
+            if exp < 2:
+                candidate["niveau_experience"] = "junior"
+            elif exp < 5:
+                candidate["niveau_experience"] = "intermédiaire"
+            elif exp < 10:
+                candidate["niveau_experience"] = "confirmé"
+            else:
+                candidate["niveau_experience"] = "senior"
+            
+            return jsonify({"success": True, "candidateInfo": candidate})
             
         finally:
-            os.unlink(tmp_path)
-            
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+                
     except Exception as e:
-        print(f"Erreur: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 @app.after_request
@@ -269,8 +132,8 @@ def after_request(response):
     response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
     return response
 
-# Pour Vercel
-app = app
-
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000, debug=True)
+
+# Pour Vercel
+app = app
