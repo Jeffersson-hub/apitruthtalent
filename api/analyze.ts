@@ -1,53 +1,72 @@
 import { createClient } from '@supabase/supabase-js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import mammoth from 'mammoth';
-
-// IMPORTATION STANDARD : On laisse Node décider du chemin
 import * as pdfjs from 'pdfjs-dist';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') return res.status(200).end();
+  // Logs de début
+  console.log("--- NOUVELLE ANALYSE LANCÉE ---");
+  console.log("Date:", new Date().toISOString());
 
   try {
     const { filePath } = req.body;
+    console.log("Fichier cible:", filePath);
+
     const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
-    const { data: fileData } = await supabase.storage.from('truthtalent').download(filePath);
-    if (!fileData) throw new Error("Fichier vide");
-
-    const arrayBuffer = await fileData.arrayBuffer();
-    let rawText = "";
-
-    if (filePath.toLowerCase().endsWith('.pdf')) {
-      // On prépare les paramètres
-      const loadingTask = pdfjs.getDocument({
-        data: new Uint8Array(arrayBuffer),
-        // disableWorker n'est plus nécessaire explicitement en v4 
-        // ou peut être passé en "as any" si on veut forcer le comportement
-        useSystemFonts: true,
-        stopAtErrors: false,
-      } as any); // Le "as any" règle ton erreur de littéral d'objet
-      
-      const pdf = await loadingTask.promise;
-      let textContent = "";
-      
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        // On récupère le texte avec une gestion propre des espaces
-        const content = await page.getTextContent();
-        const pageText = content.items
-          .map((item: any) => item.str)
-          .join(" ");
-        
-        textContent += pageText + "\n";
-      }
-      rawText = textContent;
+    // 1. Download
+    console.log("Téléchargement depuis Supabase...");
+    const { data: fileData, error: downloadError } = await supabase.storage.from('truthtalent').download(filePath);
+    
+    if (downloadError) {
+      console.error("Erreur téléchargement Supabase:", downloadError);
+      throw downloadError;
     }
 
-    // IA Groq avec focus sur l'identité
+    const arrayBuffer = await fileData.arrayBuffer();
+    console.log("Taille du buffer reçu (octets):", arrayBuffer.byteLength);
+
+    let rawText = "";
+
+    // 2. Extraction
+    if (filePath.toLowerCase().endsWith('.pdf')) {
+      console.log("Démarrage extraction PDF.js...");
+      try {
+        const loadingTask = pdfjs.getDocument({
+          data: new Uint8Array(arrayBuffer),
+          useSystemFonts: true,
+          isEvalDisabled: true,
+        } as any);
+
+        const pdf = await loadingTask.promise;
+        console.log("Nombre de pages détectées:", pdf.numPages);
+
+        let fullText = "";
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          const pageLines = content.items.map((item: any) => item.str).join(" ");
+          console.log(`Page ${i}: ${content.items.length} segments de texte trouvés.`);
+          fullText += pageLines + "\n";
+        }
+        rawText = fullText;
+      } catch (pdfErr: any) { // Correction du type unknown ici
+        console.error("Erreur interne PDF.js:", pdfErr.message);
+        throw new Error(`Échec PDF.js: ${pdfErr.message}`);
+      }
+    } else {
+      console.log("Format Word détecté (Mammoth)");
+      const result = await mammoth.extractRawText({ buffer: Buffer.from(arrayBuffer) });
+      rawText = result.value;
+    }
+
+    console.log("Longueur totale du texte extrait:", rawText.length);
+    if (rawText.trim().length === 0) {
+      console.error("ALERTE: Le texte extrait est totalement vide !");
+    }
+
+    // 3. IA Groq
+    console.log("Envoi à Groq...");
     const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -57,20 +76,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       body: JSON.stringify({
         model: "llama-3.3-70b-versatile",
         messages: [
-          { role: "system", content: "Tu es un parseur RH. Trouve le NOM et le PRÉNOM. Réponds en JSON." },
-          { role: "user", content: `Texte du CV : ${rawText.substring(0, 5000)}` }
+          { role: "system", content: "Tu es un extracteur de données de CV. Réponds en JSON strict." },
+          { role: "user", content: `Extrais {nom, prenom, email, telephone, adresse, metiers, profil, competences[], experiences[], formations[], langues[], annees_experience} depuis ce texte: ${rawText.substring(0, 6000)}` }
         ],
         response_format: { type: "json_object" }
       })
     });
 
     const aiRes = await groqResponse.json();
+    console.log("Réponse Groq reçue.");
     const c = JSON.parse(aiRes.choices[0].message.content);
 
-    // Upsert
+    // 4. Upsert Supabase
+    console.log("Enregistrement en base pour:", c.nom, c.prenom);
     const { error: dbError } = await supabase.from('candidats').upsert({
-      nom: c.nom,
-      prenom: c.prenom,
+      nom: c.nom || "Inconnu",
+      prenom: c.prenom || "Inconnu",
       email: c.email,
       telephone: c.telephone,
       adresse: c.adresse,
@@ -81,6 +102,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       formations: c.formations || [],
       langues: c.langues || [],
       annees_experience: parseFloat(c.annees_experience) || 0,
+      raw_text: rawText, // ON SAUVEGARDE LE TEXTE BRUT POUR VÉRIFIER
       fichier: filePath,
       parse_status: 'completed',
       date_analyse: new Date().toISOString()
@@ -88,10 +110,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (dbError) throw dbError;
 
-    return res.status(200).json({ success: true, debug: `${c.prenom} ${c.nom}` });
+    console.log("--- ANALYSE TERMINÉE AVEC SUCCÈS ---");
+    return res.status(200).json({ success: true, parsed: `${c.prenom} ${c.nom}` });
 
   } catch (error: any) {
-    console.error("ERREUR:", error.message);
+    console.error("CRASH ANALYSE:", error.message);
     return res.status(500).json({ error: error.message });
   }
 }
