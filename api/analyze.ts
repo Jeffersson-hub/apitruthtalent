@@ -1,15 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import mammoth from 'mammoth';
-import { createRequire } from 'module';
 
-const require = createRequire(import.meta.url);
-// Utilisation du build legacy : c'est le seul qui contient tout le nécessaire
-// pour Node.js sans forcer l'usage d'un worker externe.
-const pdfjs = require('pdfjs-dist/legacy/build/pdf.js');
+// IMPORTATION STANDARD : On laisse Node décider du chemin
+import * as pdfjs from 'pdfjs-dist';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Gestion du CORS pour tes deux domaines
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -19,19 +15,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { filePath } = req.body;
     const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
-    // 1. Récupération du fichier sur Supabase Storage
     const { data: fileData } = await supabase.storage.from('truthtalent').download(filePath);
-    if (!fileData) throw new Error("Fichier introuvable dans le storage");
+    if (!fileData) throw new Error("Fichier vide");
 
     const arrayBuffer = await fileData.arrayBuffer();
     let rawText = "";
 
-    // 2. Extraction du texte selon le format
     if (filePath.toLowerCase().endsWith('.pdf')) {
+      // Configuration sans worker externe pour éviter l'erreur de module sur Render/Vercel
       const loadingTask = pdfjs.getDocument({
         data: new Uint8Array(arrayBuffer),
-        disableWorker: true, // Crucial pour Vercel : évite de chercher un fichier worker.js
-        verbosity: 0
+        disableWorker: true,
+        useSystemFonts: true
       });
       
       const pdf = await loadingTask.promise;
@@ -39,8 +34,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
         const content = await page.getTextContent();
-        // Le join(" ") permet d'éviter que les mots soient collés, facilitant la lecture du Nom/Prénom
-        textContent += content.items.map((item: any) => item.str).join(" ") + "\n";
+        // On ajoute des espaces pour que l'IA ne lise pas les mots collés
+        textContent += content.items.map((item: any) => item.str).join(" ") + " ";
       }
       rawText = textContent;
     } else {
@@ -48,10 +43,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       rawText = result.value;
     }
 
-    // Sécurité : si l'extraction échoue, on ne va pas plus loin
-    if (!rawText || rawText.length < 10) throw new Error("Échec de l'extraction du texte");
-
-    // 3. Analyse avec Groq
+    // IA Groq avec focus sur l'identité
     const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -61,20 +53,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       body: JSON.stringify({
         model: "llama-3.3-70b-versatile",
         messages: [
-          { role: "system", content: "Tu es un parseur RH. Extrais les données en JSON. Sois extrêmement attentif au Nom et Prénom qui sont au tout début du texte." },
-          { role: "user", content: `JSON attendu: {nom, prenom, email, telephone, adresse, metiers, profil, competences[], experiences[], formations[], langues[], annees_experience}. Texte : ${rawText.substring(0, 6000)}` }
+          { role: "system", content: "Tu es un parseur RH. Trouve le NOM et le PRÉNOM. Réponds en JSON." },
+          { role: "user", content: `Texte du CV : ${rawText.substring(0, 5000)}` }
         ],
         response_format: { type: "json_object" }
       })
     });
 
-    const aiData = await groqResponse.json();
-    const c = JSON.parse(aiData.choices[0].message.content);
+    const aiRes = await groqResponse.json();
+    const c = JSON.parse(aiRes.choices[0].message.content);
 
-    // 4. Upsert (Mise à jour ou Insertion) dans la table candidats
+    // Upsert
     const { error: dbError } = await supabase.from('candidats').upsert({
-      nom: c.nom || "Non identifié",
-      prenom: c.prenom || "Non identifié",
+      nom: c.nom,
+      prenom: c.prenom,
       email: c.email,
       telephone: c.telephone,
       adresse: c.adresse,
@@ -92,10 +84,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (dbError) throw dbError;
 
-    return res.status(200).json({ success: true, candidate: `${c.prenom} ${c.nom}` });
+    return res.status(200).json({ success: true, debug: `${c.prenom} ${c.nom}` });
 
   } catch (error: any) {
-    console.error("Erreur Backend:", error.message);
+    console.error("ERREUR:", error.message);
     return res.status(500).json({ error: error.message });
   }
 }
