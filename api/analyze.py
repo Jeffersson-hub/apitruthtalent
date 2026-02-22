@@ -1,25 +1,34 @@
-# api/analyze.py - Version Gemini directe (100% fiable)
+# api/analyze.py - Version avec vérification d'import
 import os
+import sys
 import json
 import tempfile
 import PyPDF2
-import google.generativeai as genai
 from flask import Flask, request, jsonify
 from supabase import create_client
 from dotenv import load_dotenv
+
+# Vérification des imports
+try:
+    import google.generativeai as genai
+    print("✅ Google Generative AI importé avec succès")
+except ImportError as e:
+    print(f"❌ Erreur import Google Generative AI: {e}")
+    print(f"📌 Python path: {sys.path}")
+    sys.exit(1)
 
 load_dotenv()
 app = Flask(__name__)
 
 # Configuration
 supabase = create_client(
-    os.environ["SUPABASE_URL"],
-    os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    os.environ.get("SUPABASE_URL"),
+    os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 )
 
 # Initialisation Gemini
-genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
-model = genai.GenerativeModel('gemini-1.5-flash')  # Version gratuite et rapide
+genai.configure(api_key=os.environ.get("GOOGLE_API_KEY"))
+model = genai.GenerativeModel('gemini-1.0-pro')
 
 @app.route('/api/analyze', methods=['POST', 'OPTIONS'])
 def analyze():
@@ -33,35 +42,39 @@ def analyze():
         if not file_path:
             return jsonify({"success": False, "error": "filePath requis"}), 400
         
-        # 1. Télécharger le PDF
+        print(f"📥 Analyse: {file_path}")
+        
+        # Télécharger le PDF
         file_data = supabase.storage.from_('truthtalent').download(file_path)
         
-        # 2. Sauvegarder temporairement
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
             tmp.write(file_data)
             tmp_path = tmp.name
         
         try:
-            # 3. Extraire le texte du PDF
+            # Extraire le texte
             text = ""
             with open(tmp_path, 'rb') as f:
                 reader = PyPDF2.PdfReader(f)
                 for page in reader.pages:
-                    text += page.extract_text() + "\n"
+                    if page.extract_text():
+                        text += page.extract_text() + "\n"
             
-            # 4. Prompt clair pour Gemini
+            print(f"📄 Texte extrait: {len(text)} caractères")
+            
+            # Prompt pour Gemini
             prompt = f"""
-            Analyse ce CV et retourne UNIQUEMENT un JSON valide avec ces champs :
+            Analyse ce CV et retourne UNIQUEMENT un JSON valide avec ces champs EXACTS :
             - nom_complet
             - email
             - telephone
             - metier (le poste principal)
-            - competences (liste de 5-10 compétences clés)
+            - competences (liste de 5-10 compétences)
             - diplome (le plus élevé)
-            - experience_annees (nombre)
+            - experience_annees (nombre entier)
 
             CV :
-            {text[:6000]}
+            {text[:5000]}
 
             Exemple de format attendu :
             {{
@@ -69,31 +82,32 @@ def analyze():
                 "email": "jean.dupont@email.com",
                 "telephone": "0612345678",
                 "metier": "Ingénieur DevOps",
-                "competences": ["Python", "AWS", "Docker"],
+                "competences": ["Python", "AWS", "Docker", "Kubernetes"],
                 "diplome": "Master",
                 "experience_annees": 5
             }}
             """
             
-            # 5. Appel à Gemini
+            print("🤖 Appel Gemini...")
             response = model.generate_content(prompt)
             result_text = response.text.strip()
             
-            # Nettoyer la réponse (enlever ```json si présent)
+            # Nettoyer la réponse
             if result_text.startswith('```json'):
                 result_text = result_text[7:]
             if result_text.endswith('```'):
                 result_text = result_text[:-3]
             
             result = json.loads(result_text)
+            print(f"✅ Résultat Gemini: {result}")
             
-            # 6. Extraire nom et prénom
+            # Extraire nom et prénom
             nom_complet = result.get('nom_complet', '').strip()
-            nom_parts = nom_complet.split()
+            name_parts = nom_complet.split()
             
             candidate = {
-                "nom": nom_parts[-1] if len(nom_parts) > 1 else None,
-                "prenom": nom_parts[0] if nom_parts else None,
+                "nom": name_parts[-1] if len(name_parts) > 1 else None,
+                "prenom": name_parts[0] if name_parts else None,
                 "email": result.get('email'),
                 "telephone": result.get('telephone'),
                 "metier": result.get('metier'),
@@ -121,8 +135,11 @@ def analyze():
         finally:
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
-                
+            
     except Exception as e:
+        print(f"❌ Erreur: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 
 @app.after_request
@@ -133,6 +150,8 @@ def after_request(response):
     return response
 
 if __name__ == "__main__":
+    print(f"🐍 Python: {sys.executable}")
+    print(f"📦 Google Generative AI: {genai.__version__}")
     app.run(host='0.0.0.0', port=5000, debug=True)
 
 # Pour Vercel
