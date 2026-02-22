@@ -3,7 +3,7 @@ const require = createRequire(import.meta.url);
 const mammoth = require('mammoth');
 
 // Chemin d'importation corrigé pour Vercel
-const pdfjs = require('pdfjs-dist/build/pdf.js');
+const pdfjs = require('pdfjs-dist');
 
 import { createClient } from '@supabase/supabase-js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
