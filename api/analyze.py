@@ -1,6 +1,5 @@
-# api/analyze.py - Version avec vérification d'import
+# api/analyze.py - Version avec le nouveau SDK google.genai
 import os
-import sys
 import json
 import tempfile
 import PyPDF2
@@ -8,14 +7,8 @@ from flask import Flask, request, jsonify
 from supabase import create_client
 from dotenv import load_dotenv
 
-# Vérification des imports
-try:
-    import google.generativeai as genai
-    print("✅ Google Generative AI importé avec succès")
-except ImportError as e:
-    print(f"❌ Erreur import Google Generative AI: {e}")
-    print(f"📌 Python path: {sys.path}")
-    sys.exit(1)
+# ✅ Nouvel import
+from google import genai
 
 load_dotenv()
 app = Flask(__name__)
@@ -26,9 +19,8 @@ supabase = create_client(
     os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 )
 
-# Initialisation Gemini
-genai.configure(api_key=os.environ.get("GOOGLE_API_KEY"))
-model = genai.GenerativeModel('gemini-1.5-flash')
+# ✅ Nouvelle initialisation (beaucoup plus simple)
+client = genai.Client(api_key=os.environ.get("GOOGLE_API_KEY"))
 
 @app.route('/api/analyze', methods=['POST', 'OPTIONS'])
 def analyze():
@@ -41,8 +33,6 @@ def analyze():
         
         if not file_path:
             return jsonify({"success": False, "error": "filePath requis"}), 400
-        
-        print(f"📥 Analyse: {file_path}")
         
         # Télécharger le PDF
         file_data = supabase.storage.from_('truthtalent').download(file_path)
@@ -62,7 +52,7 @@ def analyze():
             
             print(f"📄 Texte extrait: {len(text)} caractères")
             
-            # Prompt pour Gemini
+            # ✅ Nouvel appel API (plus simple)
             prompt = f"""
             Analyse ce CV et retourne UNIQUEMENT un JSON valide avec ces champs EXACTS :
             - nom_complet
@@ -75,21 +65,14 @@ def analyze():
 
             CV :
             {text[:5000]}
-
-            Exemple de format attendu :
-            {{
-                "nom_complet": "Jean Dupont",
-                "email": "jean.dupont@email.com",
-                "telephone": "0612345678",
-                "metier": "Ingénieur DevOps",
-                "competences": ["Python", "AWS", "Docker", "Kubernetes"],
-                "diplome": "Master",
-                "experience_annees": 5
-            }}
             """
             
             print("🤖 Appel Gemini...")
-            response = model.generate_content(prompt)
+            response = client.models.generate_content(
+                model='gemini-1.5-flash',
+                contents=prompt
+            )
+            
             result_text = response.text.strip()
             
             # Nettoyer la réponse
@@ -99,7 +82,7 @@ def analyze():
                 result_text = result_text[:-3]
             
             result = json.loads(result_text)
-            print(f"✅ Résultat Gemini: {result}")
+            print(f"✅ Résultat: {result}")
             
             # Extraire nom et prénom
             nom_complet = result.get('nom_complet', '').strip()
@@ -150,8 +133,6 @@ def after_request(response):
     return response
 
 if __name__ == "__main__":
-    print(f"🐍 Python: {sys.executable}")
-    print(f"📦 Google Generative AI: {genai.__version__}")
     app.run(host='0.0.0.0', port=5000, debug=True)
 
 # Pour Vercel
