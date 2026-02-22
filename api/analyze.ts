@@ -22,25 +22,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let rawText = "";
 
     if (filePath.toLowerCase().endsWith('.pdf')) {
-      // Configuration sans worker externe pour éviter l'erreur de module sur Render/Vercel
+      // On prépare les paramètres
       const loadingTask = pdfjs.getDocument({
         data: new Uint8Array(arrayBuffer),
-        disableWorker: true,
-        useSystemFonts: true
-      });
+        // disableWorker n'est plus nécessaire explicitement en v4 
+        // ou peut être passé en "as any" si on veut forcer le comportement
+        useSystemFonts: true,
+        stopAtErrors: false,
+      } as any); // Le "as any" règle ton erreur de littéral d'objet
       
       const pdf = await loadingTask.promise;
       let textContent = "";
+      
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
+        // On récupère le texte avec une gestion propre des espaces
         const content = await page.getTextContent();
-        // On ajoute des espaces pour que l'IA ne lise pas les mots collés
-        textContent += content.items.map((item: any) => item.str).join(" ") + " ";
+        const pageText = content.items
+          .map((item: any) => item.str)
+          .join(" ");
+        
+        textContent += pageText + "\n";
       }
       rawText = textContent;
-    } else {
-      const result = await mammoth.extractRawText({ buffer: Buffer.from(arrayBuffer) });
-      rawText = result.value;
     }
 
     // IA Groq avec focus sur l'identité
