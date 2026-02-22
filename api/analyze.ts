@@ -32,7 +32,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // 2. Analyse avec Gemini 2.0 Flash
     const result = await generateObject({
-      model: google('gemini-1.5-flash'),
+      model: google('gemini-1.5-flash-latest'),
       schema: z.object({
         prenom: z.string(),
         nom: z.string(),
