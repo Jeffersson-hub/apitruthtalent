@@ -10,7 +10,6 @@
     "@supabase/supabase-js": "^2.48.1",
     "@vercel/node": "^5.1.2",
     "mammoth": "^1.11.0",
-    "pdf-parse": "^1.1.1",
     "pdfjs-dist": "^5.4.624",
     "zod": "^3.24.1"
   },
