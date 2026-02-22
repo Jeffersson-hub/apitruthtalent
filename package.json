@@ -10,12 +10,11 @@
     "@supabase/supabase-js": "^2.48.1",
     "@vercel/node": "^5.1.2",
     "mammoth": "^1.11.0",
-    "pdfjs-dist": "^5.4.624",
+    "pdfjs-dist": "4.4.168", 
     "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "@types/pdf-parse": "^1.1.4",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"
   }
