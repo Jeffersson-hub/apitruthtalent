@@ -1,10 +1,9 @@
-import { google } from '@ai-sdk/google';
-import { generateObject } from 'ai';
-import { z } from 'zod';
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from '@supabase/supabase-js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // 1. CORS & Sécurité
   res.setHeader('Access-Control-Allow-Origin', 'https://truthtalent.online');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -13,14 +12,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
 
   try {
-    const { filePath } = req.body; // Exemple: "cv/nom-du-fichier.pdf"
+    const { filePath } = req.body;
     
+    // Initialisation Supabase
     const supabase = createClient(
       process.env.SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    // 1. Téléchargement du fichier depuis le bucket "truthtalent"
+    // Initialisation Gemini (SDK Natif)
+    const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY!);
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+    // 2. Récupération du fichier
     const { data: fileData, error: downloadError } = await supabase.storage
       .from('truthtalent')
       .download(filePath);
@@ -28,56 +32,49 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (downloadError || !fileData) throw new Error('Fichier introuvable dans le storage');
 
     const arrayBuffer = await fileData.arrayBuffer();
-    const uint8Array = new Uint8Array(arrayBuffer);
+    const base64Data = Buffer.from(arrayBuffer).toString('base64');
 
-    // 2. Analyse avec Gemini 2.0 Flash
-    const result = await generateObject({
-      model: google('gemini-1.5-flash-latest'),
-      schema: z.object({
-        prenom: z.string(),
-        nom: z.string(),
-        email: z.string(),
-        telephone: z.string().optional(),
-        metier: z.string(),
-        competences: z.array(z.string()),
-        annees_experience: z.number(),
-        formations: z.array(z.object({
-          diplome: z.string(),
-          ecole: z.string(),
-          annee: z.string().optional()
-        })),
-        profil_resume: z.string()
-      }),
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: 'Analyse ce CV et extrais les informations structurées.' },
-            { type: 'file', data: uint8Array, mimeType: 'application/pdf' }
-          ]
-        }
-      ]
-    });
+    // 3. Analyse avec Prompt JSON strict
+    const prompt = `Analyse ce CV et retourne UNIQUEMENT un objet JSON (sans balises markdown) avec ce format exact :
+    {
+      "prenom": "string",
+      "nom": "string",
+      "email": "string",
+      "telephone": "string",
+      "metier": "string",
+      "annees_experience": number,
+      "competences": ["string"],
+      "profil_resume": "string",
+      "formations": ["string"]
+    }`;
 
-    const candidate = result.object;
+    const result = await model.generateContent([
+      { inlineData: { data: base64Data, mimeType: "application/pdf" } },
+      { text: prompt }
+    ]);
 
-    // 3. Insertion dans la table Supabase "candidats"
+    const responseText = result.response.text();
+    // Nettoyage au cas où Gemini ajoute des ```json ... ```
+    const cleanJson = responseText.replace(/```json|```/g, "").trim();
+    const candidate = JSON.parse(cleanJson);
+
+    // 4. Insertion dans ta table Supabase
     const publicUrl = supabase.storage.from('truthtalent').getPublicUrl(filePath).data.publicUrl;
 
-    const { data: dbData, error: dbError } = await supabase
+    const { error: dbError } = await supabase
       .from('candidats')
       .upsert({
         nom: candidate.nom,
         prenom: candidate.prenom,
         email: candidate.email,
         telephone: candidate.telephone,
-        metiers: candidate.metier, // Attention au pluriel dans ta table
+        metiers: candidate.metier,
         competences: candidate.competences,
         formations: candidate.formations,
         annees_experience: candidate.annees_experience,
         profil: candidate.profil_resume,
         cv_url: publicUrl,
-        fichier: filePath, // Clé unique pour éviter les doublons
+        fichier: filePath,
         date_analyse: new Date().toISOString(),
         parse_status: 'completed'
       }, { 
@@ -86,14 +83,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (dbError) throw dbError;
 
-    return res.status(200).json({ 
-      success: true, 
-      message: "Analyse et sauvegarde réussies",
-      data: candidate 
-    });
+    return res.status(200).json({ success: true, data: candidate });
 
   } catch (error: any) {
-    console.error('Erreur API:', error);
+    console.error('Erreur:', error.message);
     return res.status(500).json({ error: error.message });
   }
 }

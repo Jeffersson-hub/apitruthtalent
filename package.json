@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@ai-sdk/google": "^1.1.12",
+    "@google/generative-ai": "^0.24.1",
     "@supabase/supabase-js": "^2.48.1",
     "@vercel/node": "^5.1.2",
     "ai": "^4.1.21",
