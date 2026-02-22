@@ -1,53 +1,44 @@
-import mammoth from "mammoth";
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const pdf = require('pdf-parse');
+const mammoth = require('mammoth');
+
 import { createClient } from '@supabase/supabase-js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // 1. Headers CORS
   res.setHeader('Access-Control-Allow-Origin', 'https://truthtalent.online');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
 
   try {
     const { filePath } = req.body;
-    if (!filePath) throw new Error("Le chemin du fichier (filePath) est requis");
+    console.log("Analyse du fichier:", filePath);
 
-    const supabase = createClient(
-      process.env.SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+    const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
-    // 2. Téléchargement du fichier depuis Supabase
+    // 1. Téléchargement
     const { data: fileData, error: downloadError } = await supabase.storage
       .from('truthtalent')
       .download(filePath);
 
-    if (downloadError || !fileData) throw new Error(`Fichier introuvable: ${downloadError?.message}`);
+    if (downloadError || !fileData) throw new Error("Fichier introuvable dans le storage");
 
-    const arrayBuffer = await fileData.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    let extractedText = "";
+    const buffer = Buffer.from(await fileData.arrayBuffer());
+    let text = "";
 
-    // 3. Extraction intelligente (PDF ou DOCX)
+    // 2. Extraction
     if (filePath.toLowerCase().endsWith('.pdf')) {
       const data = await pdf(buffer);
-      extractedText = data.text;
-    } else if (filePath.toLowerCase().endsWith('.docx')) {
-      const result = await mammoth.extractRawText({ buffer });
-      extractedText = result.value;
+      text = data.text;
     } else {
-      throw new Error("Format de fichier non supporté. Utilisez PDF ou DOCX.");
+      const result = await mammoth.extractRawText({ buffer });
+      text = result.value;
     }
 
-    if (!extractedText.trim()) throw new Error("Le fichier semble vide après extraction.");
-
-    // 4. Analyse via Groq (Llama 3.3 70B est excellent pour le français)
+    // 3. IA - On force Groq à utiliser TES noms de colonnes
     const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -57,64 +48,54 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       body: JSON.stringify({
         model: "llama-3.3-70b-versatile",
         messages: [
-          { 
-            role: "system", 
-            content: "Tu es un expert RH. Analyse le texte du CV et retourne un JSON pur. Ne parle pas, ne commente pas." 
-          },
-          { 
-            role: "user", 
-            content: `Extrait les infos suivantes du texte en JSON : 
+          { role: "system", content: "Tu es un expert RH. Réponds par un objet JSON uniquement." },
+          { role: "user", content: `Analyse ce CV et remplis ce JSON exactement : 
             {
-              "prenom": "string",
-              "nom": "string",
-              "email": "string",
-              "telephone": "string",
-              "metier": "string",
-              "annees_experience": number,
-              "competences": ["string"],
-              "profil": "string"
+              "nom": "", "prenom": "", "email": "", "telephone": "",
+              "metiers": "", "competences": [], "annees_experience": 0, "profil": ""
             }
-            Texte du CV : ${extractedText.substring(0, 6000)}` // Limite pour éviter les dépassements de contexte
+            Texte : ${text.substring(0, 4000)}` 
           }
         ],
         response_format: { type: "json_object" }
       })
     });
 
-    if (!groqResponse.ok) {
-        const errorDetail = await groqResponse.text();
-        throw new Error(`Erreur Groq: ${groqResponse.status} - ${errorDetail}`);
-    }
-
     const groqData = await groqResponse.json();
     const candidate = JSON.parse(groqData.choices[0].message.content);
 
-    // 5. Sauvegarde dans ta table "candidats"
+    // 4. L'insertion avec log d'erreur précis
     const publicUrl = supabase.storage.from('truthtalent').getPublicUrl(filePath).data.publicUrl;
 
-    const { error: dbError } = await supabase
+    const { data: dbData, error: dbError } = await supabase
       .from('candidats')
       .upsert({
         nom: candidate.nom,
         prenom: candidate.prenom,
         email: candidate.email,
         telephone: candidate.telephone,
-        metiers: candidate.metier,
+        metiers: candidate.metiers, // Pluriel comme dans ton CSV
         competences: candidate.competences,
-        annees_experience: candidate.annees_experience,
+        annees_experience: candidate.annees_experience || 0,
         profil: candidate.profil,
         cv_url: publicUrl,
-        fichier: filePath,
-        date_analyse: new Date().toISOString(),
-        parse_status: 'completed'
-      }, { onConflict: 'fichier' });
+        fichier: filePath, // VERIFIE QUE CETTE COLONNE EST "UNIQUE" DANS SUPABASE
+        parse_status: 'completed',
+        date_analyse: new Date().toISOString()
+      }, { 
+        onConflict: 'fichier' 
+      })
+      .select(); // On demande le retour pour être sûr
 
-    if (dbError) throw dbError;
+    if (dbError) {
+      console.error("Erreur Supabase détaillée:", dbError);
+      throw new Error(`Supabase Upsert Error: ${dbError.message}`);
+    }
 
-    return res.status(200).json({ success: true, data: candidate });
+    return res.status(200).json({ success: true, inserted: dbData });
 
   } catch (error: any) {
-    console.error('ERREUR ANALYZE:', error.message);
+    console.error("Erreur API:", error.message);
     return res.status(500).json({ error: error.message });
   }
 }
