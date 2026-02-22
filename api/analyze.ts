@@ -1,9 +1,12 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import mammoth from "mammoth";
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const pdf = require('pdf-parse');
 import { createClient } from '@supabase/supabase-js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // 1. CORS & Sécurité
+  // 1. Headers CORS
   res.setHeader('Access-Control-Allow-Origin', 'https://truthtalent.online');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -13,57 +16,80 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const { filePath } = req.body;
-    
-    // Initialisation Supabase
+    if (!filePath) throw new Error("Le chemin du fichier (filePath) est requis");
+
     const supabase = createClient(
       process.env.SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    // Initialisation Gemini (SDK Natif)
-    const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY!);
-
-// On force la version stable et un modèle sûr
-const model = genAI.getGenerativeModel(
-  { model: "gemini-1.5-flash" }, 
-  { apiVersion: 'v1' } 
-);
-
-    // 2. Récupération du fichier
+    // 2. Téléchargement du fichier depuis Supabase
     const { data: fileData, error: downloadError } = await supabase.storage
       .from('truthtalent')
       .download(filePath);
 
-    if (downloadError || !fileData) throw new Error('Fichier introuvable dans le storage');
+    if (downloadError || !fileData) throw new Error(`Fichier introuvable: ${downloadError?.message}`);
 
     const arrayBuffer = await fileData.arrayBuffer();
-    const base64Data = Buffer.from(arrayBuffer).toString('base64');
+    const buffer = Buffer.from(arrayBuffer);
+    let extractedText = "";
 
-    // 3. Analyse avec Prompt JSON strict
-    const prompt = `Analyse ce CV et retourne UNIQUEMENT un objet JSON (sans balises markdown) avec ce format exact :
-    {
-      "prenom": "string",
-      "nom": "string",
-      "email": "string",
-      "telephone": "string",
-      "metier": "string",
-      "annees_experience": number,
-      "competences": ["string"],
-      "profil_resume": "string",
-      "formations": ["string"]
-    }`;
+    // 3. Extraction intelligente (PDF ou DOCX)
+    if (filePath.toLowerCase().endsWith('.pdf')) {
+      const data = await pdf(buffer);
+      extractedText = data.text;
+    } else if (filePath.toLowerCase().endsWith('.docx')) {
+      const result = await mammoth.extractRawText({ buffer });
+      extractedText = result.value;
+    } else {
+      throw new Error("Format de fichier non supporté. Utilisez PDF ou DOCX.");
+    }
 
-    const result = await model.generateContent([
-      { inlineData: { data: base64Data, mimeType: "application/pdf" } },
-      { text: prompt }
-    ]);
+    if (!extractedText.trim()) throw new Error("Le fichier semble vide après extraction.");
 
-    const responseText = result.response.text();
-    // Nettoyage au cas où Gemini ajoute des ```json ... ```
-    const cleanJson = responseText.replace(/```json|```/g, "").trim();
-    const candidate = JSON.parse(cleanJson);
+    // 4. Analyse via Groq (Llama 3.3 70B est excellent pour le français)
+    const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { 
+            role: "system", 
+            content: "Tu es un expert RH. Analyse le texte du CV et retourne un JSON pur. Ne parle pas, ne commente pas." 
+          },
+          { 
+            role: "user", 
+            content: `Extrait les infos suivantes du texte en JSON : 
+            {
+              "prenom": "string",
+              "nom": "string",
+              "email": "string",
+              "telephone": "string",
+              "metier": "string",
+              "annees_experience": number,
+              "competences": ["string"],
+              "profil": "string"
+            }
+            Texte du CV : ${extractedText.substring(0, 6000)}` // Limite pour éviter les dépassements de contexte
+          }
+        ],
+        response_format: { type: "json_object" }
+      })
+    });
 
-    // 4. Insertion dans ta table Supabase
+    if (!groqResponse.ok) {
+        const errorDetail = await groqResponse.text();
+        throw new Error(`Erreur Groq: ${groqResponse.status} - ${errorDetail}`);
+    }
+
+    const groqData = await groqResponse.json();
+    const candidate = JSON.parse(groqData.choices[0].message.content);
+
+    // 5. Sauvegarde dans ta table "candidats"
     const publicUrl = supabase.storage.from('truthtalent').getPublicUrl(filePath).data.publicUrl;
 
     const { error: dbError } = await supabase
@@ -75,23 +101,20 @@ const model = genAI.getGenerativeModel(
         telephone: candidate.telephone,
         metiers: candidate.metier,
         competences: candidate.competences,
-        formations: candidate.formations,
         annees_experience: candidate.annees_experience,
-        profil: candidate.profil_resume,
+        profil: candidate.profil,
         cv_url: publicUrl,
         fichier: filePath,
         date_analyse: new Date().toISOString(),
         parse_status: 'completed'
-      }, { 
-        onConflict: 'fichier' 
-      });
+      }, { onConflict: 'fichier' });
 
     if (dbError) throw dbError;
 
     return res.status(200).json({ success: true, data: candidate });
 
   } catch (error: any) {
-    console.error('Erreur:', error.message);
+    console.error('ERREUR ANALYZE:', error.message);
     return res.status(500).json({ error: error.message });
   }
 }
