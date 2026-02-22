@@ -3,14 +3,18 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vercel dev",
+    "dev": "tsx watch api/analyze.ts",
     "deploy": "vercel --prod"
   },
   "dependencies": {
-    "@ai-sdk/google": "^1.0.0",
-    "@supabase/supabase-js": "^2.0.0",
-    "@vercel/node": "^5.0.0",
-    "ai": "^4.0.0",
-    "zod": "^3.0.0"
+    "@ai-sdk/google": "^1.1.12",
+    "@supabase/supabase-js": "^2.48.1",
+    "@vercel/node": "^5.1.2",
+    "ai": "^4.1.21",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
   }
 }
