@@ -34,7 +34,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const uint8Array = new Uint8Array(arrayBuffer);
 
     const result = await generateObject({
-      model: google('gemini-3-flash'), // Utilise bien 3.0 Flash
+      model: google('gemini-2.0-flash'), // Utilise bien 3.0 Flash
       schema: z.object({
         nom_complet: z.string(),
         email: z.string(),
