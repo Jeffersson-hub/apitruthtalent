@@ -15,21 +15,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { filePath } = req.body;
     const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
-    // 1. Téléchargement
+    // 1. Extraction du texte
     const { data: fileData } = await supabase.storage.from('truthtalent').download(filePath);
-    if (!fileData) throw new Error("Fichier non trouvé");
+    if (!fileData) throw new Error("Fichier introuvable");
 
     const buffer = Buffer.from(await fileData.arrayBuffer());
-    let text = "";
+    let rawText = "";
     if (filePath.toLowerCase().endsWith('.pdf')) {
       const data = await pdf(buffer);
-      text = data.text;
+      rawText = data.text;
     } else {
       const result = await mammoth.extractRawText({ buffer });
-      text = result.value;
+      rawText = result.value;
     }
 
-    // 2. IA Groq avec le schéma EXACT de ta table SQL
+    // 2. Appel Groq avec instructions de formatage strictes
     const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -41,26 +41,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         messages: [
           { 
             role: "system", 
-            content: "Tu es un extracteur de données RH. Réponds par un JSON plat respectant strictement les types demandés." 
+            content: "Tu es un parseur de CV ultra-précis. Tu extrais les données pour une base PostgreSQL. Réponds uniquement en JSON." 
           },
           { 
             role: "user", 
-            content: `Analyse ce CV et retourne ce JSON (si vide, utilise null ou [] pour les listes) :
+            content: `Analyse ce texte et remplis ce JSON exactement. 
+            IMPORTANT: 'competences', 'experiences', 'formations', 'langues' doivent être des TABLEAUX de chaînes.
             {
               "nom": "NOM",
               "prenom": "Prenom",
               "email": "email",
-              "telephone": "téléphone",
-              "metiers": "titre du poste",
-              "adresse": "ville ou adresse",
-              "competences": ["comp1", "comp2"],
-              "formations": ["diplome 1", "diplome 2"],
-              "langues": ["langue 1", "langue 2"],
-              "experiences": ["exp 1", "exp 2"],
+              "telephone": "telephone",
+              "adresse": "ville",
+              "metiers": "le poste actuel ou visé",
               "profil": "résumé court",
-              "annees_experience": 5.5
+              "annees_experience": 5,
+              "competences": ["A", "B"],
+              "experiences": ["Job 1", "Job 2"],
+              "formations": ["Diplome 1"],
+              "langues": ["Français"]
             }
-            Texte du CV : ${text.substring(0, 6000)}` 
+            Texte : ${rawText.substring(0, 5000)}` 
           }
         ],
         response_format: { type: "json_object" }
@@ -68,46 +69,41 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
 
     const groqData = await groqResponse.json();
-    const candidate = JSON.parse(groqData.choices[0].message.content);
+    const c = JSON.parse(groqData.choices[0].message.content);
 
-    // 3. Préparation de l'URL publique
+    // 3. Insertion SQL - Mapping exact avec ta table candidats
     const publicUrl = supabase.storage.from('truthtalent').getPublicUrl(filePath).data.publicUrl;
 
-    // 4. Insertion dans la table public.candidats
     const { error: dbError } = await supabase
       .from('candidats')
       .upsert({
-        nom: candidate.nom,
-        prenom: candidate.prenom,
-        email: candidate.email,
-        telephone: candidate.telephone,
-        adresse: candidate.adresse,
-        metiers: candidate.metiers,
-        profil: candidate.profil,
-        // Conversion propre pour les champs JSONB
-        competences: JSON.stringify(candidate.competences || []),
-        formations: JSON.stringify(candidate.formations || []),
-        langues: JSON.stringify(candidate.langues || []),
-        experiences: JSON.stringify(candidate.experiences || []),
-        // Conversion numérique
-        annees_experience: parseFloat(candidate.annees_experience) || 0,
-        // Champs techniques
+        nom: c.nom || null,
+        prenom: c.prenom || null,
+        email: c.email || null,
+        telephone: c.telephone || null,
+        adresse: c.adresse || null,
+        metiers: c.metiers || null,
+        profil: c.profil || null,
+        annees_experience: parseFloat(c.annees_experience) || 0,
+        // Champs JSONB (on envoie des tableaux JS directs, Supabase gère le cast)
+        competences: c.competences || [],
+        experiences: c.experiences || [],
+        formations: c.formations || [],
+        langues: c.langues || [],
+        // Métadonnées
         fichier: filePath,
         cv_url: publicUrl,
-        cv_filename: filePath.split('/').pop(),
+        raw_text: rawText.substring(0, 2000),
         parse_status: 'completed',
-        date_analyse: new Date().toISOString(),
-        raw_text: text.substring(0, 1000) // On garde un extrait pour recherche
-      }, { 
-        onConflict: 'fichier' 
-      });
+        date_analyse: new Date().toISOString()
+      }, { onConflict: 'fichier' });
 
     if (dbError) throw dbError;
 
-    return res.status(200).json({ success: true, data: candidate });
+    return res.status(200).json({ success: true, message: "Candidat inséré avec succès" });
 
   } catch (error: any) {
-    console.error("Erreur:", error.message);
+    console.error("Erreur API:", error.message);
     return res.status(500).json({ error: error.message });
   }
 }
