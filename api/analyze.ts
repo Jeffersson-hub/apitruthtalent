@@ -67,6 +67,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // 3. IA Groq
     console.log("Envoi à Groq...");
+    // 3. IA Groq avec Prompt renforcé
+    console.log("Envoi à Groq avec instructions renforcées...");
     const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -76,8 +78,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       body: JSON.stringify({
         model: "llama-3.3-70b-versatile",
         messages: [
-          { role: "system", content: "Tu es un extracteur de données de CV. Réponds en JSON strict." },
-          { role: "user", content: `Extrais {nom, prenom, email, telephone, adresse, metiers, profil, competences[], experiences[], formations[], langues[], annees_experience} depuis ce texte: ${rawText.substring(0, 6000)}` }
+          { 
+            role: "system", 
+            content: `Tu es un expert en recrutement (ATS). Ta mission est d'extraire les données d'un CV avec une précision absolue.
+            
+            CONSIGNES CRUCIALES :
+            1. IDENTITÉ : Le Nom et le Prénom sont TOUJOURS au début du texte. Ne les ignore jamais.
+            2. STRUCTURE : Si tu vois "Jean-François BOISGONTIER", nom="BOISGONTIER", prenom="Jean-François".
+            3. EXPÉRIENCES : Extrais chaque poste avec dates, entreprise et missions.
+            4. FORMAT : Réponds uniquement en JSON pur.` 
+          },
+          { 
+            role: "user", 
+            content: `Extrais les infos de ce CV. 
+            JSON attendu: {
+              "nom": "", 
+              "prenom": "", 
+              "email": "", 
+              "telephone": "", 
+              "adresse": "", 
+              "metiers": "", 
+              "profil": "", 
+              "competences": [], 
+              "experiences": [{"date": "", "poste": "", "entreprise": "", "description": ""}], 
+              "formations": [], 
+              "langues": [], 
+              "annees_experience": 0
+            }
+            
+            Texte du CV : ${rawText.substring(0, 6000)}` 
+          }
         ],
         response_format: { type: "json_object" }
       })
