@@ -23,14 +23,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       throw downloadError;
     }
 
+    // ... après le téléchargement du fichier ...
     const arrayBuffer = await fileData.arrayBuffer();
-    console.log("Taille du buffer reçu (octets):", arrayBuffer.byteLength);
-
-    let rawText = "";
-
-    // 2. Extraction
+    let rawText = ""; // C'est cette variable qu'on utilise pour Groq
+    
     if (filePath.toLowerCase().endsWith('.pdf')) {
-      console.log("Démarrage extraction PDF.js...");
+      console.log("Démarrage extraction PDF.js avec reconstruction de lignes...");
       try {
         const loadingTask = pdfjs.getDocument({
           data: new Uint8Array(arrayBuffer),
@@ -39,26 +37,40 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         } as any);
 
         const pdf = await loadingTask.promise;
-        console.log("Nombre de pages détectées:", pdf.numPages);
+        let fullContent = ""; // On utilise une variable locale au bloc PDF
 
-        let fullText = "";
         for (let i = 1; i <= pdf.numPages; i++) {
           const page = await pdf.getPage(i);
           const content = await page.getTextContent();
-          const pageLines = content.items.map((item: any) => item.str).join(" ");
-          console.log(`Page ${i}: ${content.items.length} segments de texte trouvés.`);
-          fullText += pageLines + "\n";
+          
+          let lastY = -1;
+          let pageText = "";
+          
+          for (const item of content.items as any[]) {
+            // RECONSTRUCTION DE LA STRUCTURE VISUELLE
+            // Si la position Y change de plus de 5 unités, on considère que c'est une nouvelle ligne
+            if (lastY !== -1 && Math.abs(lastY - item.transform[5]) > 5) {
+              pageText += "\n";
+            }
+            pageText += item.str + " ";
+            lastY = item.transform[5];
+          }
+          
+          fullContent += pageText + "\n";
         }
-        rawText = fullText;
-      } catch (pdfErr: any) { // Correction du type unknown ici
-        console.error("Erreur interne PDF.js:", pdfErr.message);
-        throw new Error(`Échec PDF.js: ${pdfErr.message}`);
+        rawText = fullContent; // On assigne à la variable globale au handler
+      } catch (pdfErr: any) {
+        console.error("Erreur PDF.js:", pdfErr.message);
+        throw new Error(`Échec PDF: ${pdfErr.message}`);
       }
     } else {
-      console.log("Format Word détecté (Mammoth)");
+      // Pour Word (Mammoth)
       const result = await mammoth.extractRawText({ buffer: Buffer.from(arrayBuffer) });
       rawText = result.value;
     }
+
+    // Ici, rawText est désormais accessible et structuré avec des retours à la ligne !
+    console.log("Texte prêt pour Groq (longueur):", rawText.length);
 
     console.log("Longueur totale du texte extrait:", rawText.length);
     if (rawText.trim().length === 0) {
@@ -80,33 +92,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         messages: [
           { 
             role: "system", 
-            content: `Tu es un expert en recrutement (ATS). Ta mission est d'extraire les données d'un CV avec une précision absolue.
+            content: `Tu es un expert en parsing de CV. Tu dois extraire les informations même si le texte est mal formaté.
             
-            CONSIGNES CRUCIALES :
-            1. IDENTITÉ : Le Nom et le Prénom sont TOUJOURS au début du texte. Ne les ignore jamais.
-            2. STRUCTURE : Si tu vois "Jean-François BOISGONTIER", nom="BOISGONTIER", prenom="Jean-François".
-            3. EXPÉRIENCES : Extrais chaque poste avec dates, entreprise et missions.
-            4. FORMAT : Réponds uniquement en JSON pur.` 
+            RÈGLES D'OR :
+            - NOM/PRÉNOM : Ils sont souvent sur la toute première ligne ou près de l'email.
+            - TÉLÉPHONE : Cherche des suites de 10 chiffres ou avec +33.
+            - FORMATIONS : Liste tout le cursus scolaire.
+            - COMPÉTENCES : Extrais les mots-clés techniques et soft skills.` 
           },
           { 
             role: "user", 
-            content: `Extrais les infos de ce CV. 
-            JSON attendu: {
-              "nom": "", 
-              "prenom": "", 
-              "email": "", 
-              "telephone": "", 
-              "adresse": "", 
-              "metiers": "", 
-              "profil": "", 
-              "competences": [], 
-              "experiences": [{"date": "", "poste": "", "entreprise": "", "description": ""}], 
-              "formations": [], 
-              "langues": [], 
-              "annees_experience": 0
-            }
-            
-            Texte du CV : ${rawText.substring(0, 6000)}` 
+            content: `Analyse ce CV et retourne un JSON structuré.
+            Texte : ### ${rawText} ###` 
           }
         ],
         response_format: { type: "json_object" }
