@@ -3,61 +3,83 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import mammoth from 'mammoth';
 import * as pdfjs from 'pdfjs-dist';
 
+// Configuration du worker PDF.js pour les environnements serverless
+if (!pdfjs.GlobalWorkerOptions.workerSrc) {
+  pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  console.log("--- ANALYSE CV DÉMARRÉE ---");
-  console.log("Date:", new Date().toISOString());
+  console.log("--- DÉBUT ANALYSE TRUTHTALENT (FOCUS TOP 5) ---");
 
   try {
     const { filePath } = req.body;
-    console.log("Fichier:", filePath);
+    if (!filePath) throw new Error("Le chemin du fichier (filePath) est manquant.");
 
-    const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    const supabase = createClient(
+      process.env.SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
 
-    // 1. Téléchargement du fichier
-    console.log("Téléchargement...");
+    // 1. Téléchargement du fichier depuis Supabase
     const { data: fileData, error: downloadError } = await supabase.storage
       .from('truthtalent')
       .download(filePath);
-    
+
     if (downloadError) throw downloadError;
 
-    // 2. Extraction du texte
     const arrayBuffer = await fileData.arrayBuffer();
     let rawText = "";
-    
-    if (filePath.toLowerCase().endsWith('.pdf')) {
-      console.log("Extraction PDF...");
-      const loadingTask = pdfjs.getDocument({
-        data: new Uint8Array(arrayBuffer),
-        useSystemFonts: true,
-      } as any);
 
+    // 2. Extraction du texte selon le format
+    if (filePath.toLowerCase().endsWith('.pdf')) {
+      const loadingTask = pdfjs.getDocument({ 
+        data: new Uint8Array(arrayBuffer),
+        useSystemFonts: true 
+      });
       const pdf = await loadingTask.promise;
-      let fullText = "";
+      let fullContent = [];
 
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
         const content = await page.getTextContent();
-        const pageText = content.items.map((item: any) => item.str).join(' ');
-        fullText += pageText + '\n';
+        
+        // TRI SPATIAL : Crucial pour les CV à 2 colonnes (ex: Emily Pillot)
+        const items = content.items as any[];
+        items.sort((a, b) => {
+          if (Math.abs(b.transform[5] - a.transform[5]) > 5) {
+            return b.transform[5] - a.transform[5]; // Haut vers bas
+          }
+          return a.transform[4] - b.transform[4]; // Gauche vers droite
+        });
+
+        let lastY = -1;
+        let pageText = "";
+        for (const item of items) {
+          if (lastY !== -1 && Math.abs(lastY - item.transform[5]) > 5) {
+            pageText += "\n";
+          }
+          pageText += item.str + " ";
+          lastY = item.transform[5];
+        }
+        fullContent.push(pageText);
       }
-      rawText = fullText;
+      rawText = fullContent.join("\n--- PAGE ---\n");
     } else {
+      // Pour les fichiers Word (.docx)
       const result = await mammoth.extractRawText({ buffer: Buffer.from(arrayBuffer) });
       rawText = result.value;
     }
 
-    // Nettoyage de base
-    rawText = rawText.replace(/\s+/g, ' ').trim();
-    console.log("Texte extrait, longueur:", rawText.length);
+    if (!rawText.trim()) throw new Error("Extraction impossible : texte vide.");
 
-    // 3. Extraction des informations clés avec regex (avant l'IA)
-    const extracted = extractBasicInfo(rawText);
-    console.log("Infos extraites par regex:", extracted);
+    // 3. SÉCURITÉS REGEX (Extraction mathématique de l'email et du téléphone)
+    const emailMatch = rawText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+    const phoneMatch = rawText.match(/(?:(?:\+|00)33|0)\s*[1-9](?:[\s.-]*\d{2}){4}/);
 
-    // 4. IA Groq pour compléter et structurer
-    console.log("Envoi à Groq pour enrichissement...");
-    
+    const emailSecu = emailMatch ? emailMatch[0].toLowerCase() : null;
+    const telSecu = phoneMatch ? phoneMatch[0].replace(/[\s.-]/g, '') : null;
+
+    // 4. APPEL À GROQ (Modèle Llama 3.3 70B)
     const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -69,145 +91,60 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         messages: [
           { 
             role: "system", 
-            content: `Tu es un expert en extraction de CV. Extrais UNIQUEMENT les informations demandées au format JSON.
-
-RÈGLES ABSOLUES :
-- Le NOM est souvent en majuscules
-- Le PRÉNOM est souvent après le nom ou avant
-- L'EMAIL suit le format standard
-- Le TÉLÉPHONE est au format français (06, 07, +33)
-- Les MÉTIERS sont les titres principaux du CV (ex: "Administrateur Systèmes", "Ingénieur DevOps")
-
-Format de sortie STRICT :
-{
-  "nom": "nom de famille",
-  "prenom": "prénom",
-  "email": "email",
-  "telephone": "téléphone",
-  "metiers": ["métier1", "métier2"]
-}`
+            content: `Tu es un expert RH. Analyse le CV et extrais UNIQUEMENT ces 5 champs en JSON :
+            - nom (en MAJUSCULES)
+            - prenom (Format Standard)
+            - email (l'adresse email trouvée)
+            - telephone (format 10 chiffres)
+            - metiers (le titre principal du profil ou poste actuel)
+            
+            Si une info est manquante, mets null. Réponds uniquement par le JSON.`
           },
-          { 
-            role: "user", 
-            content: `Extrais du CV suivant UNIQUEMENT nom, prénom, email, téléphone, et métiers :
-
-${rawText.substring(0, 2000)}` // On prend seulement le début du CV
-          }
+          { role: "user", content: `Texte extrait du CV :\n${rawText}` }
         ],
-        temperature: 0.1,
-        max_tokens: 500,
-        response_format: { type: "json_object" }
+        response_format: { type: "json_object" },
+        temperature: 0 // Zéro créativité, 100% précision
       })
     });
 
-    if (!groqResponse.ok) {
-      throw new Error(`Groq API error: ${groqResponse.status}`);
-    }
-
     const aiRes = await groqResponse.json();
-    let aiData;
+    if (!aiRes.choices) throw new Error("Erreur de réponse Groq");
     
-    try {
-      aiData = JSON.parse(aiRes.choices[0].message.content);
-      console.log("Données Groq:", aiData);
-    } catch (e) {
-      console.error("Erreur parsing Groq, utilisation des données regex");
-      aiData = {};
-    }
+    const parsed = JSON.parse(aiRes.choices[0].message.content);
 
-    // 5. Fusion des données (priorité à Groq, fallback sur regex)
-    const candidatData = {
-      nom: aiData.nom || extracted.nom || "Inconnu",
-      prenom: aiData.prenom || extracted.prenom || "Inconnu",
-      email: aiData.email || extracted.email || null,
-      telephone: aiData.telephone || extracted.telephone || null,
-      metiers: aiData.metiers || extracted.metiers || [],
-      // On garde le texte brut pour traitement ultérieur
+    // 5. FUSION DES DONNÉES (Priorité à la sécurité Regex)
+    const finalData = {
+      nom: parsed.nom || "Inconnu",
+      prenom: parsed.prenom || "Inconnu",
+      email: emailSecu || parsed.email,
+      telephone: telSecu || parsed.telephone,
+      metiers: parsed.metiers || "Non spécifié",
       raw_text: rawText,
       fichier: filePath,
       parse_status: 'completed',
       date_analyse: new Date().toISOString()
     };
 
-    console.log("Données finales à sauvegarder:", {
-      nom: candidatData.nom,
-      prenom: candidatData.prenom,
-      email: candidatData.email,
-      telephone: candidatData.telephone,
-      metiers: candidatData.metiers
+    console.log("Données finales prêtes pour insertion :", { 
+      nom: finalData.nom, 
+      prenom: finalData.prenom, 
+      email: finalData.email 
     });
 
-    // 6. Sauvegarde en base
+    // 6. ENREGISTREMENT DANS SUPABASE
     const { error: dbError } = await supabase
       .from('candidats')
-      .upsert(candidatData, { 
-        onConflict: 'fichier'
-      });
+      .upsert(finalData, { onConflict: 'fichier' });
 
     if (dbError) throw dbError;
 
     return res.status(200).json({ 
       success: true, 
-      data: {
-        nom: candidatData.nom,
-        prenom: candidatData.prenom,
-        email: candidatData.email,
-        telephone: candidatData.telephone,
-        metiers: candidatData.metiers
-      }
+      message: `Analyse de ${finalData.prenom} ${finalData.nom} terminée.` 
     });
 
   } catch (error: any) {
-    console.error("ERREUR:", error);
+    console.error("CRASH ANALYSE:", error.message);
     return res.status(500).json({ error: error.message });
   }
-}
-
-// Fonction d'extraction par regex en secours
-function extractBasicInfo(text: string) {
-  const info: any = {
-    nom: null,
-    prenom: null,
-    email: null,
-    telephone: null,
-    metiers: []
-  };
-
-  // Email
-  const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-  if (emailMatch) info.email = emailMatch[0];
-
-  // Téléphone (format français)
-  const phoneMatch = text.match(/(?:(?:\+|00)33|0)\s*[1-9](?:[\s.-]*\d{2}){4}/);
-  if (phoneMatch) info.telephone = phoneMatch[0].replace(/\s+/g, '');
-
-  // Extraction du nom/prénom depuis le début du CV
-  const firstLines = text.split('\n').slice(0, 5).join(' ');
-  
-  // Pattern: "Prénom NOM" ou "NOM Prénom" avec majuscules
-  const nameMatch = firstLines.match(/([A-Z][a-zéèêëàâîïôûùç]+)\s+([A-Z]{2,})|([A-Z]{2,})\s+([A-Z][a-zéèêëàâîïôûùç]+)/);
-  if (nameMatch) {
-    if (nameMatch[1] && nameMatch[2]) {
-      info.prenom = nameMatch[1];
-      info.nom = nameMatch[2];
-    } else if (nameMatch[3] && nameMatch[4]) {
-      info.nom = nameMatch[3];
-      info.prenom = nameMatch[4];
-    }
-  }
-
-  // Métiers courants
-  const metiersList = [
-    "Ingénieur", "Administrateur", "Développeur", "Chef de projet",
-    "DevOps", "SysOps", "Support", "Technicien", "Responsable",
-    "Architecte", "Consultant", "Manager", "Analyste"
-  ];
-  
-  for (const metier of metiersList) {
-    if (text.includes(metier) && !info.metiers.includes(metier)) {
-      info.metiers.push(metier);
-    }
-  }
-
-  return info;
 }
