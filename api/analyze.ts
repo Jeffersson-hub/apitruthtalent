@@ -3,60 +3,61 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import mammoth from 'mammoth';
 import * as pdfjs from 'pdfjs-dist';
 
-// Configuration du worker PDF.js pour éviter les erreurs en environnement Serverless
-if (!pdfjs.GlobalWorkerOptions.workerSrc) {
-  pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
-}
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  console.log("--- DÉBUT ANALYSE TRUTHTALENT ---");
+  console.log("--- ANALYSE CV DÉMARRÉE ---");
+  console.log("Date:", new Date().toISOString());
 
   try {
     const { filePath } = req.body;
+    console.log("Fichier:", filePath);
+
     const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
-    // 1. Téléchargement
-    const { data: fileData, error: downloadError } = await supabase.storage.from('truthtalent').download(filePath);
+    // 1. Téléchargement du fichier
+    console.log("Téléchargement...");
+    const { data: fileData, error: downloadError } = await supabase.storage
+      .from('truthtalent')
+      .download(filePath);
+    
     if (downloadError) throw downloadError;
 
+    // 2. Extraction du texte
     const arrayBuffer = await fileData.arrayBuffer();
     let rawText = "";
-
-    // 2. Extraction du texte (Améliorée)
+    
     if (filePath.toLowerCase().endsWith('.pdf')) {
-      const loadingTask = pdfjs.getDocument({ data: new Uint8Array(arrayBuffer) });
+      console.log("Extraction PDF...");
+      const loadingTask = pdfjs.getDocument({
+        data: new Uint8Array(arrayBuffer),
+        useSystemFonts: true,
+      } as any);
+
       const pdf = await loadingTask.promise;
-      let fullContent = [];
+      let fullText = "";
 
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
         const content = await page.getTextContent();
-        
-        // Tri par position Y (haut vers bas) puis X (gauche vers droite) 
-        // pour mieux gérer les colonnes
-        const items = content.items as any[];
-        items.sort((a, b) => b.transform[5] - a.transform[5] || a.transform[4] - b.transform[4]);
-
-        let lastY = -1;
-        let pageText = "";
-        for (const item of items) {
-          if (lastY !== -1 && Math.abs(lastY - item.transform[5]) > 8) {
-            pageText += "\n";
-          }
-          pageText += item.str + " ";
-          lastY = item.transform[5];
-        }
-        fullContent.push(pageText);
+        const pageText = content.items.map((item: any) => item.str).join(' ');
+        fullText += pageText + '\n';
       }
-      rawText = fullContent.join("\n--- PAGE SEPARATOR ---\n");
+      rawText = fullText;
     } else {
       const result = await mammoth.extractRawText({ buffer: Buffer.from(arrayBuffer) });
       rawText = result.value;
     }
 
-    if (!rawText.trim()) throw new Error("Le texte extrait est vide.");
+    // Nettoyage de base
+    rawText = rawText.replace(/\s+/g, ' ').trim();
+    console.log("Texte extrait, longueur:", rawText.length);
 
-    // 3. IA Groq avec Schéma JSON strict
+    // 3. Extraction des informations clés avec regex (avant l'IA)
+    const extracted = extractBasicInfo(rawText);
+    console.log("Infos extraites par regex:", extracted);
+
+    // 4. IA Groq pour compléter et structurer
+    console.log("Envoi à Groq pour enrichissement...");
+    
     const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -68,59 +69,145 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         messages: [
           { 
             role: "system", 
-            content: `Tu es un expert en recrutement. Analyse le CV fourni et retourne EXCLUSIVEMENT un objet JSON respectant cette structure exacte :
-            {
-              "nom": "string",
-              "prenom": "string",
-              "email": "string",
-              "telephone": "string",
-              "adresse": "string",
-              "metiers": "string (le titre du poste actuel ou visé)",
-              "profil": "string (résumé court)",
-              "competences": ["array de strings"],
-              "experiences": [{"poste": "string", "entreprise": "string", "duree": "string", "description": "string"}],
-              "formations": [{"diplome": "string", "ecole": "string", "annee": "string"}],
-              "langues": ["array de strings"],
-              "annees_experience": number
-            }
-            Si une information est absente, mets null. Ne divague pas.`
+            content: `Tu es un expert en extraction de CV. Extrais UNIQUEMENT les informations demandées au format JSON.
+
+RÈGLES ABSOLUES :
+- Le NOM est souvent en majuscules
+- Le PRÉNOM est souvent après le nom ou avant
+- L'EMAIL suit le format standard
+- Le TÉLÉPHONE est au format français (06, 07, +33)
+- Les MÉTIERS sont les titres principaux du CV (ex: "Administrateur Systèmes", "Ingénieur DevOps")
+
+Format de sortie STRICT :
+{
+  "nom": "nom de famille",
+  "prenom": "prénom",
+  "email": "email",
+  "telephone": "téléphone",
+  "metiers": ["métier1", "métier2"]
+}`
           },
-          { role: "user", content: `Voici le texte du CV :\n${rawText}` }
+          { 
+            role: "user", 
+            content: `Extrais du CV suivant UNIQUEMENT nom, prénom, email, téléphone, et métiers :
+
+${rawText.substring(0, 2000)}` // On prend seulement le début du CV
+          }
         ],
-        response_format: { type: "json_object" },
-        temperature: 0.1 // Plus bas pour plus de précision technique
+        temperature: 0.1,
+        max_tokens: 500,
+        response_format: { type: "json_object" }
       })
     });
 
-    const aiRes = await groqResponse.json();
-    const candidateData = JSON.parse(aiRes.choices[0].message.content);
+    if (!groqResponse.ok) {
+      throw new Error(`Groq API error: ${groqResponse.status}`);
+    }
 
-    // 4. Upsert Supabase (Nettoyage des données avant envoi)
-    const { error: dbError } = await supabase.from('candidats').upsert({
-      nom: candidateData.nom || "Inconnu",
-      prenom: candidateData.prenom || "Inconnu",
-      email: candidateData.email,
-      telephone: candidateData.telephone,
-      adresse: candidateData.adresse,
-      metiers: candidateData.metiers,
-      profil: candidateData.profil,
-      competences: candidateData.competences || [],
-      experiences: candidateData.experiences || [],
-      formations: candidateData.formations || [],
-      langues: candidateData.langues || [],
-      annees_experience: Number(candidateData.annees_experience) || 0,
+    const aiRes = await groqResponse.json();
+    let aiData;
+    
+    try {
+      aiData = JSON.parse(aiRes.choices[0].message.content);
+      console.log("Données Groq:", aiData);
+    } catch (e) {
+      console.error("Erreur parsing Groq, utilisation des données regex");
+      aiData = {};
+    }
+
+    // 5. Fusion des données (priorité à Groq, fallback sur regex)
+    const candidatData = {
+      nom: aiData.nom || extracted.nom || "Inconnu",
+      prenom: aiData.prenom || extracted.prenom || "Inconnu",
+      email: aiData.email || extracted.email || null,
+      telephone: aiData.telephone || extracted.telephone || null,
+      metiers: aiData.metiers || extracted.metiers || [],
+      // On garde le texte brut pour traitement ultérieur
       raw_text: rawText,
       fichier: filePath,
       parse_status: 'completed',
       date_analyse: new Date().toISOString()
-    }, { onConflict: 'fichier' });
+    };
+
+    console.log("Données finales à sauvegarder:", {
+      nom: candidatData.nom,
+      prenom: candidatData.prenom,
+      email: candidatData.email,
+      telephone: candidatData.telephone,
+      metiers: candidatData.metiers
+    });
+
+    // 6. Sauvegarde en base
+    const { error: dbError } = await supabase
+      .from('candidats')
+      .upsert(candidatData, { 
+        onConflict: 'fichier'
+      });
 
     if (dbError) throw dbError;
 
-    return res.status(200).json({ success: true, name: `${candidateData.prenom} ${candidateData.nom}` });
+    return res.status(200).json({ 
+      success: true, 
+      data: {
+        nom: candidatData.nom,
+        prenom: candidatData.prenom,
+        email: candidatData.email,
+        telephone: candidatData.telephone,
+        metiers: candidatData.metiers
+      }
+    });
 
   } catch (error: any) {
-    console.error("ERREUR CRASH:", error.message);
+    console.error("ERREUR:", error);
     return res.status(500).json({ error: error.message });
   }
+}
+
+// Fonction d'extraction par regex en secours
+function extractBasicInfo(text: string) {
+  const info: any = {
+    nom: null,
+    prenom: null,
+    email: null,
+    telephone: null,
+    metiers: []
+  };
+
+  // Email
+  const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+  if (emailMatch) info.email = emailMatch[0];
+
+  // Téléphone (format français)
+  const phoneMatch = text.match(/(?:(?:\+|00)33|0)\s*[1-9](?:[\s.-]*\d{2}){4}/);
+  if (phoneMatch) info.telephone = phoneMatch[0].replace(/\s+/g, '');
+
+  // Extraction du nom/prénom depuis le début du CV
+  const firstLines = text.split('\n').slice(0, 5).join(' ');
+  
+  // Pattern: "Prénom NOM" ou "NOM Prénom" avec majuscules
+  const nameMatch = firstLines.match(/([A-Z][a-zéèêëàâîïôûùç]+)\s+([A-Z]{2,})|([A-Z]{2,})\s+([A-Z][a-zéèêëàâîïôûùç]+)/);
+  if (nameMatch) {
+    if (nameMatch[1] && nameMatch[2]) {
+      info.prenom = nameMatch[1];
+      info.nom = nameMatch[2];
+    } else if (nameMatch[3] && nameMatch[4]) {
+      info.nom = nameMatch[3];
+      info.prenom = nameMatch[4];
+    }
+  }
+
+  // Métiers courants
+  const metiersList = [
+    "Ingénieur", "Administrateur", "Développeur", "Chef de projet",
+    "DevOps", "SysOps", "Support", "Technicien", "Responsable",
+    "Architecte", "Consultant", "Manager", "Analyste"
+  ];
+  
+  for (const metier of metiersList) {
+    if (text.includes(metier) && !info.metiers.includes(metier)) {
+      info.metiers.push(metier);
+    }
+  }
+
+  return info;
 }
