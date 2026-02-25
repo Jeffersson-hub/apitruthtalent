@@ -73,78 +73,46 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!rawText.trim()) throw new Error("Extraction impossible : texte vide.");
 
     // 3. SÉCURITÉS REGEX (Extraction mathématique de l'email et du téléphone)
+    // SÉCURITÉS REGEX
     const emailMatch = rawText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
     const phoneMatch = rawText.match(/(?:(?:\+|00)33|0)\s*[1-9](?:[\s.-]*\d{2}){4}/);
-
     const emailSecu = emailMatch ? emailMatch[0].toLowerCase() : null;
     const telSecu = phoneMatch ? phoneMatch[0].replace(/[\s.-]/g, '') : null;
 
-    // 4. APPEL À GROQ (Modèle Llama 3.3 70B)
+    // IA GROQ
     const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
-        "Content-Type": "application/json"
-      },
+      headers: { "Authorization": `Bearer ${process.env.GROQ_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "llama-3.3-70b-versatile",
-        messages: [
-          { 
-            role: "system", 
-            content: `Tu es un expert RH. Analyse le CV et extrais UNIQUEMENT ces 5 champs en JSON :
-            - nom (en MAJUSCULES)
-            - prenom (Format Standard)
-            - email (l'adresse email trouvée)
-            - telephone (format 10 chiffres)
-            - metiers (le titre principal du profil ou poste actuel)
-            
-            Si une info est manquante, mets null. Réponds uniquement par le JSON.`
-          },
-          { role: "user", content: `Texte extrait du CV :\n${rawText}` }
-        ],
+        messages: [{ role: "system", content: "Extraire nom, prenom, email, telephone, metiers en JSON." }, { role: "user", content: rawText }],
         response_format: { type: "json_object" },
-        temperature: 0 // Zéro créativité, 100% précision
+        temperature: 0
       })
     });
 
     const aiRes = await groqResponse.json();
-    if (!aiRes.choices) throw new Error("Erreur de réponse Groq");
-    
     const parsed = JSON.parse(aiRes.choices[0].message.content);
 
-    // 5. FUSION DES DONNÉES (Priorité à la sécurité Regex)
+    // STRUCTURE DE RÉPONSE SYNCHRONISÉE
     const finalData = {
       nom: parsed.nom || "Inconnu",
       prenom: parsed.prenom || "Inconnu",
       email: emailSecu || parsed.email,
       telephone: telSecu || parsed.telephone,
-      metiers: parsed.metiers || "Non spécifié",
-      raw_text: rawText,
-      fichier: filePath,
-      parse_status: 'completed',
-      date_analyse: new Date().toISOString()
+      metiers: parsed.metiers || "Non spécifié"
     };
 
-    console.log("Données finales prêtes pour insertion :", { 
-      nom: finalData.nom, 
-      prenom: finalData.prenom, 
-      email: finalData.email 
-    });
+    console.log("Extraction OK pour:", finalData.email);
 
-    // 6. ENREGISTREMENT DANS SUPABASE
-    const { error: dbError } = await supabase
-      .from('candidats')
-      .upsert(finalData, { onConflict: 'fichier' });
-
-    if (dbError) throw dbError;
-
+    // IMPORTANT : On renvoie l'objet finalData dans une clé "data"
     return res.status(200).json({ 
       success: true, 
-      message: `Analyse de ${finalData.prenom} ${finalData.nom} terminée.` 
+      data: finalData,  // <--- C'est cette clé que la Edge Function cherche
+      raw_text: rawText 
     });
 
   } catch (error: any) {
-    console.error("CRASH ANALYSE:", error.message);
-    return res.status(500).json({ error: error.message });
+    return res.status(500).json({ success: false, error: error.message });
   }
 }
