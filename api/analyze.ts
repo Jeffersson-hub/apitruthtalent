@@ -80,12 +80,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const telSecu = phoneMatch ? phoneMatch[0].replace(/[\s.-]/g, '') : null;
 
     // IA GROQ
+    // ... (garder le début de votre handler)
+
     const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: { "Authorization": `Bearer ${process.env.GROQ_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "llama-3.3-70b-versatile",
-        messages: [{ role: "system", content: "Extraire nom, prenom, email, telephone, metiers en JSON." }, { role: "user", content: rawText }],
+        messages: [
+          { 
+            role: "system", 
+            content: `Tu es un expert RH. Analyse le CV et extrais en JSON :
+            - nom, prenom, email, telephone
+            - niveau : Choisis strictement parmi [CAP, Bac, BTS, DEUG, Licence, Master, Doctorat] selon le plus haut diplôme.
+            - competences : Une liste simple de mots-clés (ex: ["Docker", "RH", "Anglais"]).
+            - experiences : Une liste d'objets avec :
+                { "poste": "...", "entreprise": "...", "periode": "...", "description": "..." }
+            - metiers : Liste des titres de postes principaux.
+            
+            Réponds uniquement en JSON sans texte autour.` 
+          },
+          { role: "user", content: rawText }
+        ],
         response_format: { type: "json_object" },
         temperature: 0
       })
@@ -94,14 +110,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const aiRes = await groqResponse.json();
     const parsed = JSON.parse(aiRes.choices[0].message.content);
 
-    // STRUCTURE DE RÉPONSE SYNCHRONISÉE
+        // STRUCTURE DE RÉPONSE SYNCHRONISÉE
     const finalData = {
       nom: parsed.nom || "Inconnu",
       prenom: parsed.prenom || "Inconnu",
       email: emailSecu || parsed.email,
       telephone: telSecu || parsed.telephone,
-      metiers: parsed.metiers || "Non spécifié"
+      niveau: parsed.niveau || null,
+      metiers: parsed.metiers || [],
+      competences: parsed.competences || [], // Sera stocké en JSONB
+      experiences: parsed.experiences || [], // Sera stocké en JSONB
+      fichier: filePath
     };
+
+
+    return res.status(200).json({ success: true, data: finalData });
 
     console.log("Extraction OK pour:", finalData.email);
 
