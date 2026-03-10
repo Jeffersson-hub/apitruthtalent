@@ -90,15 +90,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         messages: [
           { 
             role: "system", 
-            content: `Tu es un expert RH. Analyse le CV et extrais en JSON :
-            - nom, prenom, email, telephone
-            - niveau : Choisis strictement parmi [CAP, Bac, BTS, DEUG, Licence, Master, Doctorat] selon le plus haut diplôme.
-            - competences : Une liste simple de mots-clés (ex: ["Docker", "RH", "Anglais"]).
-            - experiences : Une liste d'objets avec :
-                { "poste": "...", "entreprise": "...", "periode": "...", "description": "..." }
-            - metiers : Liste des titres de postes principaux.
-            
-            Réponds uniquement en JSON sans texte autour.` 
+            // --- DANS VOTRE FICHIER VERCEL/NODE ---
+              content: `Tu es un expert RH. Analyse le CV et extrais en JSON :
+              - nom, prenom, email, telephone
+              - niveau : Choisis strictement parmi [CAP, Bac, BTS, DEUG, Licence, Master, Doctorat].
+              - metiers : Liste des titres de postes principaux (ex: ["Développeur Fullstack", "Chef de Projet"]). 
+              - competences : Liste de mots-clés techniques.
+              - experiences : Liste d'objets { poste, entreprise, periode, description }.
+
+              Réponds UNIQUEMENT en JSON.` 
           },
           { role: "user", content: rawText }
         ],
