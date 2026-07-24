@@ -4,9 +4,15 @@ const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
 const mammoth = require('mammoth');
 const pdfParse = require('pdf-parse');
-require('dotenv').config();
+
 
 const app = express();
+
+try {
+  require('dotenv').config();
+} catch (e) {
+  console.log('⚠️ dotenv non trouvé, utilisation des variables d\'environnement système');
+}
 
 // CORS
 app.use(cors({
