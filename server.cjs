@@ -1,9 +1,10 @@
-// api/analyze.cjs - Version CommonJS pour Render
-import { createClient } from '@supabase/supabase-js';
-import mammoth from 'mammoth';
-import pdfParse from 'pdf-parse';
-import express from 'express';
-import cors from 'cors';
+// server.cjs - Version CommonJS pour Render
+const express = require('express');
+const cors = require('cors');
+const { createClient } = require('@supabase/supabase-js');
+const mammoth = require('mammoth');
+const pdfParse = require('pdf-parse');
+require('dotenv').config();
 
 const app = express();
 
@@ -17,7 +18,7 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 
 // ============================================
-// FONCTIONS
+// FONCTIONS D'EXTRACTION
 // ============================================
 async function extractTextFromPDF(arrayBuffer) {
   try {

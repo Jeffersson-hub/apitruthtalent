@@ -1,24 +1,19 @@
 {
   "name": "apitruthtalent",
   "version": "1.0.0",
-  "type": "module",
+  "type": "commonjs",
   "scripts": {
-    "dev": "tsx api/analyze.ts",
-    "build": "tsc",
-    "start": "tsx server.js",
-    "deploy": "vercel --prod"
+    "start": "node server.cjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",
-    "@vercel/node": "^5.1.2",
-    "express": "^4.19.2",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
     "mammoth": "^1.6.0",
-    "pdf-parse": "^1.1.4"
+    "pdf-parse": "^1.1.1"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "@types/pdf-parse": "^1.1.5",
-    "tsx": "^4.0.0",
     "typescript": "^5.0.0"
   }
 }
