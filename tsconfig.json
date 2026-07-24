@@ -15,6 +15,6 @@
     "noImplicitAny": false,
     "allowSyntheticDefaultImports": true
   },
-  "include": ["api/**/*.ts"],
+  "include": ["api/**/*.ts", "api/analyze.mjs"],
   "exclude": ["node_modules", "dist"]
 }

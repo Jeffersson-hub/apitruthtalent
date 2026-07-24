@@ -1,20 +1,20 @@
 {
   "name": "apitruthtalent",
   "version": "1.0.0",
-  "type": "commonjs",
+  "type": "module",
   "scripts": {
-    "start": "node server.cjs"
+    "build": "tsc"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",
-    "cors": "^2.8.5",
-    "dotenv": "^17.4.2",
-    "express": "^4.18.2",
     "mammoth": "^1.6.0",
     "pdf-parse": "^1.1.1"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18.x"
   }
 }

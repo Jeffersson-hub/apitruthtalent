@@ -1,4 +1,4 @@
-// api/analyze.ts
+// api/analyze.mjs - ES Module pour Vercel
 import { createClient } from '@supabase/supabase-js';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
@@ -13,9 +13,9 @@ const corsHeaders = {
 };
 
 // ============================================
-// EXPORT DU HANDLER
+// HANDLER
 // ============================================
-export default async function handler(req: any, res: any) {
+export default async function handler(req, res) {
   // Gestion CORS - OPTIONS
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -43,11 +43,11 @@ export default async function handler(req: any, res: any) {
     console.log('📁 Fichier à analyser:', filePath);
 
     const supabase = createClient(
-      process.env.SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
     );
 
-    // Télécharger le fichier
+    // 1. Télécharger le fichier
     const { data: fileData, error: downloadError } = await supabase.storage
       .from('truthtalent')
       .download(filePath);
@@ -63,7 +63,7 @@ export default async function handler(req: any, res: any) {
     const arrayBuffer = await fileData.arrayBuffer();
     let rawText = '';
 
-    // Extraire le texte
+    // 2. Extraire le texte
     if (filePath.toLowerCase().endsWith('.pdf')) {
       const buffer = Buffer.from(arrayBuffer);
       const data = await pdfParse(buffer);
@@ -87,70 +87,65 @@ export default async function handler(req: any, res: any) {
 
     console.log('📝 Texte extrait, longueur:', rawText.length);
 
-    // Extraction des contacts (fallback)
+    // 3. Extraction des contacts
     const emailMatch = rawText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
     const phoneMatch = rawText.match(/(?:(?:\+|00)33|0)\s*[1-9](?:[\s.-]*\d{2}){4}/);
 
-    // Appel Groq (si clé disponible)
-    let parsed = null;
+    // 4. Appel Groq
     const groqApiKey = process.env.GROQ_API_KEY;
+    let parsed = null;
 
-   if (groqApiKey) {
-  try {
-    console.log("🤖 Appel Groq...");
-    const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${groqApiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        messages: [
-          {
-            role: "system",
-            content: `Tu es un expert RH. Analyse le CV et extrais en JSON UNIQUEMENT :
-              - nom, prenom
-              - niveau (CAP, Bac, BTS, DEUG, Licence, Master, Doctorat)
-              - metiers (array)
-              - competences (array)
-              - experiences (array d'objets { poste, entreprise, periode, description })
-              Réponds UNIQUEMENT en JSON valide.`
+    if (groqApiKey) {
+      try {
+        console.log('🤖 Appel Groq...');
+        const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${groqApiKey}`,
+            'Content-Type': 'application/json'
           },
-          { role: "user", content: rawText.substring(0, 8000) }
-        ],
-        response_format: { type: "json_object" },
-        temperature: 0
-      })
-    });
+          body: JSON.stringify({
+            model: 'llama-3.3-70b-versatile',
+            messages: [
+              {
+                role: 'system',
+                content: `Tu es un expert RH. Analyse le CV et extrais en JSON UNIQUEMENT :
+                  - nom, prenom
+                  - niveau (CAP, Bac, BTS, DEUG, Licence, Master, Doctorat)
+                  - metiers (array)
+                  - competences (array)
+                  - experiences (array d'objets { poste, entreprise, periode, description })
+                  Réponds UNIQUEMENT en JSON valide.`
+              },
+              { role: 'user', content: rawText.substring(0, 8000) }
+            ],
+            response_format: { type: 'json_object' },
+            temperature: 0
+          })
+        });
 
-    if (groqResponse.ok) {
-      const aiRes = await groqResponse.json();
-      console.log("✅ Groq a répondu");
-
-      // ICI : Typer explicitement la réponse
-      const groqData = aiRes as { choices: { message: { content: string } }[] };
-      const content = groqData.choices?.[0]?.message?.content;
-
-      if (content) {
-        try {
-          parsed = JSON.parse(content);
-          console.log("✅ JSON parsé avec succès");
-        } catch (parseError) {
-          console.warn("⚠️ Réponse Groq non-JSON:", content.substring(0, 100));
+        if (groqResponse.ok) {
+          const aiRes = await groqResponse.json();
+          console.log('✅ Groq a répondu');
+          
+          const groqData = aiRes;
+          const content = groqData.choices?.[0]?.message?.content;
+          
+          if (content) {
+            try {
+              parsed = JSON.parse(content);
+              console.log('✅ JSON parsé');
+            } catch (e) {
+              console.warn('⚠️ Réponse Groq non-JSON');
+            }
+          }
         }
-      } else {
-        console.warn("⚠️ Réponse Groq sans contenu");
+      } catch (groqError) {
+        console.warn('⚠️ Erreur Groq:', groqError.message);
       }
-    } else {
-      console.warn("⚠️ Erreur Groq:", await groqResponse.text());
     }
-  } catch (groqError: any) {
-    console.warn("⚠️ Erreur Groq:", groqError.message);
-  }
-}
 
-    // Fallback si Groq échoue
+    // Fallback
     if (!parsed) {
       parsed = {
         nom: 'Inconnu',
@@ -162,7 +157,7 @@ export default async function handler(req: any, res: any) {
       };
     }
 
-    // Réponse
+    // 5. Réponse
     const finalData = {
       nom: parsed.nom || 'Inconnu',
       prenom: parsed.prenom || 'Inconnu',
@@ -183,7 +178,7 @@ export default async function handler(req: any, res: any) {
       data: finalData
     });
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('❌ Erreur API:', error);
     return res.status(500).json({
       success: false,
