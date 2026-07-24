@@ -3,17 +3,45 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import mammoth from 'mammoth';
 import * as pdfjs from 'pdfjs-dist';
 
-// Configuration du worker PDF.js pour les environnements serverless
+// Configuration du worker PDF.js
 if (!pdfjs.GlobalWorkerOptions.workerSrc) {
   pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 }
 
+// ============================================
+// HEADERS CORS
+// ============================================
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+  'Access-Control-Max-Age': '86400'
+};
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  console.log("--- DÉBUT ANALYSE TRUTHTALENT (FOCUS TOP 5) ---");
+  console.log("--- DÉBUT ANALYSE TRUTHTALENT ---");
+
+  // ============================================
+  // GESTION DES REQUÊTES OPTIONS (CORS)
+  // ============================================
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.status(200).end();
+    return;
+  }
+
+  // Ajouter les headers CORS à toutes les réponses
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   try {
     const { filePath } = req.body;
-    if (!filePath) throw new Error("Le chemin du fichier (filePath) est manquant.");
+    if (!filePath) {
+      throw new Error("Le chemin du fichier (filePath) est manquant.");
+    }
 
     const supabase = createClient(
       process.env.SUPABASE_URL!,
@@ -37,19 +65,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         useSystemFonts: true 
       });
       const pdf = await loadingTask.promise;
-      let fullContent = [];
+      let fullContent: string[] = [];
 
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
         const content = await page.getTextContent();
         
-        // TRI SPATIAL : Crucial pour les CV à 2 colonnes (ex: Emily Pillot)
         const items = content.items as any[];
         items.sort((a, b) => {
           if (Math.abs(b.transform[5] - a.transform[5]) > 5) {
-            return b.transform[5] - a.transform[5]; // Haut vers bas
+            return b.transform[5] - a.transform[5];
           }
-          return a.transform[4] - b.transform[4]; // Gauche vers droite
+          return a.transform[4] - b.transform[4];
         });
 
         let lastY = -1;
@@ -65,39 +92,38 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       rawText = fullContent.join("\n--- PAGE ---\n");
     } else {
-      // Pour les fichiers Word (.docx)
       const result = await mammoth.extractRawText({ buffer: Buffer.from(arrayBuffer) });
       rawText = result.value;
     }
 
-    if (!rawText.trim()) throw new Error("Extraction impossible : texte vide.");
+    if (!rawText.trim()) {
+      throw new Error("Extraction impossible : texte vide.");
+    }
 
-    // 3. SÉCURITÉS REGEX (Extraction mathématique de l'email et du téléphone)
-    // SÉCURITÉS REGEX
+    // 3. Extraction des contacts
     const emailMatch = rawText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
     const phoneMatch = rawText.match(/(?:(?:\+|00)33|0)\s*[1-9](?:[\s.-]*\d{2}){4}/);
     const emailSecu = emailMatch ? emailMatch[0].toLowerCase() : null;
     const telSecu = phoneMatch ? phoneMatch[0].replace(/[\s.-]/g, '') : null;
 
-    // IA GROQ
-    // ... (garder le début de votre handler)
-
+    // 4. Appel Groq
     const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
-      headers: { "Authorization": `Bearer ${process.env.GROQ_API_KEY}`, "Content-Type": "application/json" },
+      headers: { 
+        "Authorization": `Bearer ${process.env.GROQ_API_KEY}`, 
+        "Content-Type": "application/json" 
+      },
       body: JSON.stringify({
         model: "llama-3.3-70b-versatile",
         messages: [
           { 
             role: "system", 
-            // --- DANS VOTRE FICHIER VERCEL/NODE ---
-              content: `Tu es un expert RH. Analyse le CV et extrais en JSON :
+            content: `Tu es un expert RH. Analyse le CV et extrais en JSON :
               - nom, prenom, email, telephone
               - niveau : Choisis strictement parmi [CAP, Bac, BTS, DEUG, Licence, Master, Doctorat].
               - metiers : Liste des titres de postes principaux (ex: ["Développeur Fullstack", "Chef de Projet"]). 
               - competences : Liste de mots-clés techniques.
               - experiences : Liste d'objets { poste, entreprise, periode, description }.
-
               Réponds UNIQUEMENT en JSON.` 
           },
           { role: "user", content: rawText }
@@ -110,7 +136,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const aiRes = await groqResponse.json();
     const parsed = JSON.parse(aiRes.choices[0].message.content);
 
-        // STRUCTURE DE RÉPONSE SYNCHRONISÉE
+    // 5. Structure de réponse
     const finalData = {
       nom: parsed.nom || "Inconnu",
       prenom: parsed.prenom || "Inconnu",
@@ -118,24 +144,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       telephone: telSecu || parsed.telephone,
       niveau: parsed.niveau || null,
       metiers: parsed.metiers || [],
-      competences: parsed.competences || [], // Sera stocké en JSONB
-      experiences: parsed.experiences || [], // Sera stocké en JSONB
+      competences: parsed.competences || [],
+      experiences: parsed.experiences || [],
       fichier: filePath
     };
 
+    console.log("✅ Extraction OK pour:", finalData.email);
 
-    return res.status(200).json({ success: true, data: finalData });
-
-    console.log("Extraction OK pour:", finalData.email);
-
-    // IMPORTANT : On renvoie l'objet finalData dans une clé "data"
     return res.status(200).json({ 
       success: true, 
-      data: finalData,  // <--- C'est cette clé que la Edge Function cherche
+      data: finalData,
       raw_text: rawText 
     });
 
   } catch (error: any) {
+    console.error("❌ Erreur:", error);
     return res.status(500).json({ success: false, error: error.message });
   }
 }
