@@ -95,48 +95,60 @@ export default async function handler(req: any, res: any) {
     let parsed = null;
     const groqApiKey = process.env.GROQ_API_KEY;
 
-    if (groqApiKey) {
-      try {
-        console.log('🤖 Appel Groq...');
-        const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${groqApiKey}`,
-            'Content-Type': 'application/json'
+   if (groqApiKey) {
+  try {
+    console.log("🤖 Appel Groq...");
+    const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${groqApiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          {
+            role: "system",
+            content: `Tu es un expert RH. Analyse le CV et extrais en JSON UNIQUEMENT :
+              - nom, prenom
+              - niveau (CAP, Bac, BTS, DEUG, Licence, Master, Doctorat)
+              - metiers (array)
+              - competences (array)
+              - experiences (array d'objets { poste, entreprise, periode, description })
+              Réponds UNIQUEMENT en JSON valide.`
           },
-          body: JSON.stringify({
-            model: 'llama-3.3-70b-versatile',
-            messages: [
-              {
-                role: 'system',
-                content: `Tu es un expert RH. Analyse le CV et extrais en JSON UNIQUEMENT :
-                  - nom, prenom
-                  - niveau (CAP, Bac, BTS, DEUG, Licence, Master, Doctorat)
-                  - metiers (array)
-                  - competences (array)
-                  - experiences (array d'objets { poste, entreprise, periode, description })
-                  Réponds UNIQUEMENT en JSON valide.`
-              },
-              { role: 'user', content: rawText.substring(0, 8000) }
-            ],
-            response_format: { type: 'json_object' },
-            temperature: 0
-          })
-        });
+          { role: "user", content: rawText.substring(0, 8000) }
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0
+      })
+    });
 
-        if (groqResponse.ok) {
-          const aiRes = await groqResponse.json();
-          try {
-            parsed = JSON.parse(aiRes.choices[0].message.content);
-            console.log('✅ Groq a répondu');
-          } catch (e) {
-            console.warn('⚠️ Réponse Groq non-JSON');
-          }
+    if (groqResponse.ok) {
+      const aiRes = await groqResponse.json();
+      console.log("✅ Groq a répondu");
+
+      // ICI : Typer explicitement la réponse
+      const groqData = aiRes as { choices: { message: { content: string } }[] };
+      const content = groqData.choices?.[0]?.message?.content;
+
+      if (content) {
+        try {
+          parsed = JSON.parse(content);
+          console.log("✅ JSON parsé avec succès");
+        } catch (parseError) {
+          console.warn("⚠️ Réponse Groq non-JSON:", content.substring(0, 100));
         }
-      } catch (groqError: any) {
-        console.warn('⚠️ Erreur Groq:', groqError.message);
+      } else {
+        console.warn("⚠️ Réponse Groq sans contenu");
       }
+    } else {
+      console.warn("⚠️ Erreur Groq:", await groqResponse.text());
     }
+  } catch (groqError: any) {
+    console.warn("⚠️ Erreur Groq:", groqError.message);
+  }
+}
 
     // Fallback si Groq échoue
     if (!parsed) {
