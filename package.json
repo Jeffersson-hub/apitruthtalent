@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch api/analyze.ts",
-    "start": "tsx server.js", 
+    "start": "tsx server.js",
     "deploy": "vercel --prod"
   },
   "dependencies": {
@@ -12,8 +12,11 @@
     "@vercel/node": "^5.1.2",
     "express": "^4.19.2",
     "mammoth": "^1.11.0",
-    "pdfjs-dist": "4.4.168",
+    "pdfjs-dist": "^3.11.174",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1"
   }
 }
