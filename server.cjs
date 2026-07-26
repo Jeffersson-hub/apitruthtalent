@@ -1,10 +1,8 @@
 // server.cjs - Version CommonJS pour Render
 const express = require('express');
 const cors = require('cors');
-const { createClient } = require('@supabase/supabase-js');
 const mammoth = require('mammoth');
 const pdfParse = require('pdf-parse');
-
 
 const app = express();
 
@@ -101,33 +99,38 @@ function getNiveauExperience(annees) {
 }
 
 // ============================================
-// ROUTE D'ANALYSE
+// ROUTE D'ANALYSE - VERSION CORRIGÉE
 // ============================================
 app.post('/api/analyze', async (req, res) => {
   try {
     const { filePath } = req.body;
     if (!filePath) {
-      return res.status(400).json({ error: "filePath requis" });
+      return res.status(400).json({ 
+        success: false,
+        error: "filePath requis" 
+      });
     }
 
     console.log("📁 Fichier à analyser:", filePath);
 
-    const supabase = createClient(
-      process.env.SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY
-    );
+    // 🔥 UTILISER L'URL PUBLIQUE
+    const SUPABASE_URL = process.env.SUPABASE_URL || 'https://cpdokjsyxmohubgvxift.supabase.co';
+    const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/truthtalent/${filePath}`;
+    
+    console.log("🌐 Téléchargement depuis:", publicUrl);
 
-    // Télécharger le fichier
-    const { data: fileData, error: downloadError } = await supabase.storage
-      .from('truthtalent')
-      .download(filePath);
-
-    if (downloadError) {
-      console.error("❌ Erreur téléchargement:", downloadError);
-      throw downloadError;
+    // Télécharger avec fetch
+    const downloadResponse = await fetch(publicUrl);
+    
+    if (!downloadResponse.ok) {
+      console.error("❌ Erreur téléchargement:", downloadResponse.status);
+      return res.status(500).json({
+        success: false,
+        error: `Erreur téléchargement: HTTP ${downloadResponse.status}`
+      });
     }
 
-    const arrayBuffer = await fileData.arrayBuffer();
+    const arrayBuffer = await downloadResponse.arrayBuffer();
     let rawText = "";
 
     // Extraire le texte
@@ -177,7 +180,7 @@ app.post('/api/analyze', async (req, res) => {
                   - experiences (array d'objets { poste, entreprise, periode, description })
                   Réponds UNIQUEMENT en JSON valide.` 
               },
-              { role: "user", content: rawText }
+              { role: "user", content: rawText.substring(0, 8000) }
             ],
             response_format: { type: "json_object" },
             temperature: 0
@@ -186,8 +189,15 @@ app.post('/api/analyze', async (req, res) => {
 
         if (groqResponse.ok) {
           const aiRes = await groqResponse.json();
-          parsed = JSON.parse(aiRes.choices[0].message.content);
-          console.log("✅ Groq a répondu");
+          const content = aiRes.choices?.[0]?.message?.content;
+          if (content) {
+            try {
+              parsed = JSON.parse(content);
+              console.log("✅ Groq a répondu");
+            } catch (e) {
+              console.warn("⚠️ Réponse Groq non-JSON");
+            }
+          }
         }
       } catch (groqError) {
         console.warn("⚠️ Erreur Groq:", groqError.message);
@@ -223,7 +233,7 @@ app.post('/api/analyze', async (req, res) => {
       annees_experience: experienceCalculee,
       niveau_experience: niveauExperience,
       fichier: filePath,
-      raw_text: rawText
+      raw_text: rawText.substring(0, 2000)
     };
 
     console.log("✅ Analyse terminée pour:", finalData.email || finalData.nom);
